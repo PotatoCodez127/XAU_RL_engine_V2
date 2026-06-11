@@ -94,9 +94,9 @@ class XAUDynamicEnv(gym.Env):
         
         self.current_step += 1
         
-        # Termination conditions
-        terminated = self.equity <= self.initial_balance * 0.1 # Blown account
-        truncated = self.current_step >= len(self.df) - 1
+        # Termination conditions (Forced to native Python booleans)
+        terminated = bool(self.equity <= self.initial_balance * 0.1) # Blown account
+        truncated = bool(self.current_step >= len(self.df) - 1)
         
         info = {
             "balance": self.balance,
