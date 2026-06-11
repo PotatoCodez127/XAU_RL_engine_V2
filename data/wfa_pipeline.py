@@ -6,23 +6,43 @@ class WalkForwardPipeline:
     def __init__(self, xau_path: str, dxy_path: str, embargo_bars: int = 200):
         """
         embargo_bars: Number of periods to skip between train and test 
-        to prevent look-ahead bias from overlapping 4H/30m structural zones.
+        to prevent look-ahead bias from overlapping structural zones.
         """
         self.xau_path = xau_path
         self.dxy_path = dxy_path
         self.embargo_bars = embargo_bars
         self.master_df = None
 
+    def _load_mt_csv(self, filepath: str) -> pd.DataFrame:
+        """Parses MetaTrader specific CSV/TSV exports."""
+        # MetaTrader files are often tab-delimited
+        df = pd.read_csv(filepath, sep='\t')
+        
+        # If the file is actually comma-separated, fallback
+        if len(df.columns) == 1:
+            df = pd.read_csv(filepath, sep=',')
+
+        # Clean MetaTrader headers: <DATE> -> date
+        df.columns = [c.strip('<>').lower() for c in df.columns]
+        
+        # Combine date and time into a single datetime index
+        df['datetime'] = pd.to_datetime(df['date'] + ' ' + df['time'], format='%Y.%m.%d %H:%M:%S')
+        df.set_index('datetime', inplace=True)
+        df.drop(columns=['date', 'time'], inplace=True)
+        
+        return df
+
     def load_and_merge(self) -> pd.DataFrame:
-        # Load datasets, assuming 'time' is the primary column
-        xau = pd.read_csv(self.xau_path, parse_dates=['time'], index_col='time')
-        dxy = pd.read_csv(self.dxy_path, parse_dates=['time'], index_col='time')
+        xau = self._load_mt_csv(self.xau_path)
+        dxy = self._load_mt_csv(self.dxy_path)
+
+        # Add prefix to DXY columns to avoid collision (e.g., close -> close_dxy)
+        dxy.columns = [f"{c}_dxy" for c in dxy.columns]
 
         # Left join to maintain XAU as the master timeline
-        df = xau.join(dxy, rsuffix='_dxy', how='left')
+        df = xau.join(dxy, how='left')
 
-        # Forward fill missing DXY values to preserve rows before dropping 
-        # the unfillable initial NaNs.
+        # Forward fill missing DXY values to preserve rows
         df.ffill(inplace=True)
         df.dropna(inplace=True) 
 
@@ -30,9 +50,7 @@ class WalkForwardPipeline:
         return df
 
     def generate_splits(self, train_size: int, test_size: int, step_size: int) -> List[Dict[str, pd.DataFrame]]:
-        """
-        Generates rolling windows for Walk-Forward Analysis.
-        """
+        """Generates rolling windows for Walk-Forward Analysis."""
         if self.master_df is None:
             raise ValueError("Data not loaded. Call load_and_merge() first.")
 
@@ -44,7 +62,6 @@ class WalkForwardPipeline:
             test_start = train_end + self.embargo_bars
             test_end = test_start + test_size
 
-            # Ensure we don't exceed the dataset bounds
             if test_end > total_len:
                 break
 

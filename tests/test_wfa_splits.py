@@ -5,20 +5,34 @@ from data.wfa_pipeline import WalkForwardPipeline
 
 @pytest.fixture
 def mock_market_data(tmp_path):
-    """Generates a synthetic dataset to test pipeline logic without needing real CSVs."""
+    """Generates synthetic MetaTrader-formatted datasets."""
     dates = pd.date_range(start='2023-01-01', periods=2000, freq='h')
     
-    xau = pd.DataFrame({'close': np.random.randn(2000)}, index=dates)
-    dxy = pd.DataFrame({'close_dxy': np.random.randn(2000)}, index=dates)
+    # Simulate MetaTrader structure
+    data_template = {
+        '<DATE>': dates.strftime('%Y.%m.%d'),
+        '<TIME>': dates.strftime('%H:%M:%S'),
+        '<OPEN>': np.random.randn(2000),
+        '<HIGH>': np.random.randn(2000),
+        '<LOW>': np.random.randn(2000),
+        '<CLOSE>': np.random.randn(2000),
+        '<TICKVOL>': 1,
+        '<VOL>': 0,
+        '<SPREAD>': 4
+    }
+    
+    xau = pd.DataFrame(data_template)
+    dxy = pd.DataFrame(data_template)
 
-    # Intentionally inject a large block of missing DXY data
-    dxy.iloc[50:100] = np.nan
+    # Intentionally inject missing data into DXY
+    dxy.loc[50:100, '<CLOSE>'] = np.nan
 
     xau_path = tmp_path / "xau_mock.csv"
     dxy_path = tmp_path / "dxy_mock.csv"
 
-    xau.reset_index(names='time').to_csv(xau_path, index=False)
-    dxy.reset_index(names='time').to_csv(dxy_path, index=False)
+    # Export as tab-delimited exactly like MT5
+    xau.to_csv(xau_path, sep='\t', index=False)
+    dxy.to_csv(dxy_path, sep='\t', index=False)
 
     return str(xau_path), str(dxy_path)
 
@@ -28,7 +42,6 @@ def test_missing_data_retention(mock_market_data):
     pipeline = WalkForwardPipeline(xau_path, dxy_path)
     df = pipeline.load_and_merge()
 
-    # The dataset should remain intact (~2000 rows), not collapse to 0.
     assert len(df) > 1900
     assert not df['close_dxy'].isnull().any()
 
@@ -45,5 +58,4 @@ def test_embargo_leakage_prevention(mock_market_data):
     train_end_idx = pipeline.master_df.index.get_loc(first_split['train'].index[-1])
     test_start_idx = pipeline.master_df.index.get_loc(first_split['test'].index[0])
 
-    # Assert the gap in indices matches our strict embargo rule
     assert (test_start_idx - train_end_idx) == embargo
