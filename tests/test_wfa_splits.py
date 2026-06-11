@@ -58,4 +58,4 @@ def test_embargo_leakage_prevention(mock_market_data):
     train_end_idx = pipeline.master_df.index.get_loc(first_split['train'].index[-1])
     test_start_idx = pipeline.master_df.index.get_loc(first_split['test'].index[0])
 
-    assert (test_start_idx - train_end_idx) == embargo
+    assert (test_start_idx - train_end_idx - 1) == embargo
