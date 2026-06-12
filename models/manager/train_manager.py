@@ -5,44 +5,46 @@ import pandas as pd
 from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.monitor import Monitor
+from sklearn.preprocessing import StandardScaler
 
-from data.wfa_pipeline import WalkForwardPipeline
 from env.xau_dynamic_env import XAUDynamicEnv
 from models.oracle.attention_net import TemporalAttentionOracle
 
 class ManagerPipeline:
-    def __init__(self, xau_path: str, dxy_path: str, oracle_weights_path: str = None):
-        self.wfa = WalkForwardPipeline(xau_path, dxy_path, embargo_bars=200)
+    def __init__(self, features_path: str, dxy_path: str = "", oracle_weights_path: str = None):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # Initialize Oracle
-        self.oracle = TemporalAttentionOracle(input_dim=10, seq_len=30).to(self.device)
+        # Sniff the feature dimensions from the master dataset
+        temp_df = pd.read_csv(features_path, nrows=1)
+        exclude_cols = ['target', 'time', 'datetime', 'date']
+        self.feature_cols = [c for c in temp_df.columns if c not in exclude_cols and not c.startswith('env_')]
+        input_dim = len(self.feature_cols)
+
+        # Initialize Oracle with the correct dimensions
+        self.oracle = TemporalAttentionOracle(input_dim=input_dim, seq_len=30).to(self.device)
         if oracle_weights_path and os.path.exists(oracle_weights_path):
             self.oracle.load_state_dict(torch.load(oracle_weights_path, map_location=self.device))
         self.oracle.eval() # Freeze Oracle during Manager training
 
     def _precompute_oracle_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Runs the entire dataset through the Oracle once to save RL compute time.
-        In reality, you would map your exact 10 features here.
-        """
         print("Pre-computing Oracle pattern recognition...")
         
-        # Mocking the 10 features expected by the Oracle
-        features = np.random.randn(len(df), 10) 
+        scaler = StandardScaler()
+        if len(df) > 0 and len(self.feature_cols) > 0:
+            raw_features = scaler.fit_transform(df[self.feature_cols].values)
+        else:
+            raise ValueError("Dataframe is missing the required feature columns.")
         
-        # We need to simulate the 30-period rolling window for the Oracle
         probs_list = np.zeros((len(df), 3))
         
         with torch.no_grad():
             for i in range(30, len(df)):
-                window = features[i-30:i]
+                window = raw_features[i-30:i]
                 window_tensor = torch.FloatTensor(window).unsqueeze(0).to(self.device)
                 logits = self.oracle(window_tensor)
                 probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
                 probs_list[i] = probs
                 
-        # Append Oracle probabilities to the DataFrame
         df['prob_hold'] = probs_list[:, 0]
         df['prob_long'] = probs_list[:, 1]
         df['prob_short'] = probs_list[:, 2]
@@ -50,8 +52,6 @@ class ManagerPipeline:
         return df
 
     def train_wfa_split(self, split_idx: int, train_df: pd.DataFrame, val_df: pd.DataFrame):
-        """Trains the SAC agent on a specific Walk-Forward split."""
-        
         # 1. Enqueue data through the Oracle
         enriched_train = self._precompute_oracle_features(train_df.copy())
         enriched_val = self._precompute_oracle_features(val_df.copy())
@@ -60,10 +60,9 @@ class ManagerPipeline:
         train_env = Monitor(XAUDynamicEnv(df=enriched_train))
         val_env = Monitor(XAUDynamicEnv(df=enriched_val))
         
-        # 3. Configure the SAC Agent
-        # We use a smaller network for the Manager because the Oracle already did the heavy lifting
         policy_kwargs = dict(net_arch=[128, 128])
         
+        # 3. Configure SAC Agent (With Static Entropy Firewall)
         model = SAC(
             "MlpPolicy", 
             train_env, 
@@ -71,11 +70,13 @@ class ManagerPipeline:
             learning_rate=3e-4,
             buffer_size=50000,
             batch_size=256,
-            ent_coef='auto', # Automatically tunes exploration vs exploitation
+            ent_coef=0.05, 
+            target_update_interval=2, 
             tensorboard_log=f"./logs/wfa_split_{split_idx}/"
         )
         
-        # 4. Callback to save best model during training
+        os.makedirs(f"./models/manager/saved/wfa_{split_idx}/", exist_ok=True)
+        
         eval_callback = EvalCallback(
             val_env, 
             best_model_save_path=f"./models/manager/saved/wfa_{split_idx}/",

@@ -53,27 +53,27 @@ class XAUDynamicEnv(gym.Env):
         return self._get_observation(), {}
 
     def _get_observation(self) -> np.ndarray:
-        # Placeholder for actual Oracle feature integration
-        # In the full engine, this will pull the current market state and append
-        # the equity metrics: [current_equity / initial_balance, current_drawdown]
         drawdown = (self.peak_equity - self.equity) / self.peak_equity if self.peak_equity > 0 else 0
         equity_ratio = self.equity / self.initial_balance
         
         obs = np.zeros(self.obs_dim, dtype=np.float32)
         obs[-2:] = [equity_ratio, drawdown]
+        
+        # CRITICAL FIREWALL: Prevent float overflow from crashing the network
+        # Clamp all inputs to a strict [-10, 10] neural range
+        obs = np.clip(obs, -10.0, 10.0)
+        
+        # Catch stray NaNs resulting from division by zero edge cases
+        if np.isnan(obs).any():
+            obs = np.nan_to_num(obs)
+            
         return obs
 
     def step(self, action: np.ndarray):
         direction, size_pct, tp_mult, sl_mult = self._map_action(action)
         
-        # --- Simulated Physics for Testing ---
-        # In the real loop, this accesses self.df.iloc[self.current_step] 
-        # to calculate distance-to-TP vs distance-to-SL using high/low prices.
-        
-        # Simulate a generic outcome for the sake of the structural test
         simulated_pnl = 0.0
         if direction != 0:
-            # Randomly hit TP or SL based on a naive probability for structural testing
             hit_tp = np.random.rand() > 0.6 
             if hit_tp:
                 simulated_pnl = (self.balance * size_pct) * (tp_mult * 0.01)
@@ -88,14 +88,15 @@ class XAUDynamicEnv(gym.Env):
             
         drawdown = (self.peak_equity - self.equity) / self.peak_equity
         
-        # Risk-Adjusted Reward Shaping (Sortino proxy)
-        # We severely penalize large drawdowns to force the SAC to prefer stable growth
-        reward = simulated_pnl - (drawdown * self.initial_balance * 0.5)
+        raw_reward = simulated_pnl - (drawdown * self.initial_balance * 0.5)
+        
+        # Scale the reward, then strictly bound it
+        reward = raw_reward / (self.initial_balance * 0.01)
+        reward = float(np.clip(reward, -10.0, 10.0))
         
         self.current_step += 1
         
-        # Termination conditions (Forced to native Python booleans)
-        terminated = bool(self.equity <= self.initial_balance * 0.1) # Blown account
+        terminated = bool(self.equity <= self.initial_balance * 0.1) 
         truncated = bool(self.current_step >= len(self.df) - 1)
         
         info = {
@@ -105,4 +106,4 @@ class XAUDynamicEnv(gym.Env):
             "sl_mult_used": sl_mult
         }
         
-        return self._get_observation(), float(reward), terminated, truncated, info
+        return self._get_observation(), reward, terminated, truncated, info
