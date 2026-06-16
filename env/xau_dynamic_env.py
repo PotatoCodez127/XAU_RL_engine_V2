@@ -88,12 +88,26 @@ class XAUDynamicEnv(gym.Env):
             
         drawdown = (self.peak_equity - self.equity) / self.peak_equity
         
-        raw_reward = simulated_pnl - (drawdown * self.initial_balance * 0.5)
+        # ===========================SWING CONFIG=============================
+        # raw_reward = simulated_pnl - (drawdown * self.initial_balance * 0.5)
         
-        # Scale the reward, then strictly bound it
+        # # Scale the reward, then strictly bound it
+        # reward = raw_reward / (self.initial_balance * 0.01)
+        # reward = float(np.clip(reward, -10.0, 10.0))
+        # ===========================SWING CONFIG=============================
+
+
+        # 1. Softened Drawdown Penalty (0.1 instead of 0.5)
+        raw_reward = simulated_pnl - (drawdown * self.initial_balance * 0.1)
+        # Scale the reward to the neural range
         reward = raw_reward / (self.initial_balance * 0.01)
+        # 2. Inactivity Penalty: Nudge the agent to find trades
+        if direction == 0:  # If action is 'Hold'
+            reward -= 0.05  # Slight bleed to encourage market participation
+        # Strictly bound it
         reward = float(np.clip(reward, -10.0, 10.0))
-        
+
+
         self.current_step += 1
         
         terminated = bool(self.equity <= self.initial_balance * 0.1) 
