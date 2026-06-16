@@ -1,123 +1,115 @@
-import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
 import pandas as pd
+import gymnasium as gym
+from gymnasium import spaces
 
 class XAUDynamicEnv(gym.Env):
-    """
-    A custom trading environment for XAUUSD that supports a 3D Action Space.
-    Allows the RL agent to dynamically set Take Profit and Stop Loss limits.
-    """
-    metadata = {'render_modes': ['human', 'console']}
-
-    def __init__(self, df: pd.DataFrame, initial_balance: float = 10000.0, window_size: int = 30):
-        super().__init__()
-        self.df = df
+    def __init__(self, df: pd.DataFrame, initial_balance=10000.0):
+        super(XAUDynamicEnv, self).__init__()
+        
+        self.df = df.reset_index(drop=True)
         self.initial_balance = initial_balance
-        self.window_size = window_size
         
-        # Action Space: Continuous [-1, 1] for SAC
-        # [0]: Direction & Size (< 0 = Short, > 0 = Long, magnitude = position size)
-        # [1]: TP Multiplier (mapped to 0.5x - 5.0x ATR)
-        # [2]: SL Multiplier (mapped to 0.5x - 3.0x ATR)
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
+        # Action Space: [Direction (Hold/Long/Short), Size%, TP Mult, SL Mult]
+        # Direction: [-1, -0.33] = Short, [-0.33, 0.33] = Hold, [0.33, 1.0] = Long
+        # Size: [-1, 1] mapped to 0% - 5% risk
+        # TP Mult: [-1, 1] mapped to 1.0x - 5.0x
+        # SL Mult: [-1, 1] mapped to 0.5x - 2.0x
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float32)
         
-        # Observation Space: Assuming the Oracle provides compressed features (e.g., 15 dims)
-        # plus portfolio metrics (drawdown, current equity ratio). Total = 17 dims.
-        self.obs_dim = 17 
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32)
+        # Observation Space
+        exclude_cols = ['target', 'time', 'datetime', 'date']
+        self.feature_cols = [c for c in df.columns if c not in exclude_cols and not c.startswith('env_')]
         
-        self.reset()
-
-    def _map_action(self, action: np.ndarray):
-        """Translates [-1, 1] neural network outputs to real-world trading parameters."""
-        raw_direction = action[0]
-        direction = 1 if raw_direction > 0 else -1 if raw_direction < 0 else 0
-        size_pct = abs(raw_direction) # How much of the portfolio to risk
+        # Add 2 to observation space for equity_ratio and drawdown
+        self.observation_space = spaces.Box(low=-10.0, high=10.0, shape=(len(self.feature_cols) + 2,), dtype=np.float32)
         
-        # Map TP from [-1, 1] to [0.5, 5.0]
-        tp_mult = np.interp(action[1], [-1, 1], [0.5, 5.0])
+        self.current_step = 30 
+        self.balance = self.initial_balance
+        self.peak_balance = self.initial_balance
+        self.state = np.zeros(self.observation_space.shape[0])
         
-        # Map SL from [-1, 1] to [0.5, 3.0]
-        sl_mult = np.interp(action[2], [-1, 1], [0.5, 3.0])
-        
-        return direction, size_pct, tp_mult, sl_mult
-
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.current_step = self.window_size
+        self.current_step = 30
         self.balance = self.initial_balance
-        self.equity = self.initial_balance
-        self.peak_equity = self.initial_balance
+        self.peak_balance = self.initial_balance
+        return self._get_obs(), {}
         
-        return self._get_observation(), {}
-
-    def _get_observation(self) -> np.ndarray:
-        drawdown = (self.peak_equity - self.equity) / self.peak_equity if self.peak_equity > 0 else 0
-        equity_ratio = self.equity / self.initial_balance
+    def _get_obs(self):
+        obs = np.zeros(self.observation_space.shape[0], dtype=np.float32)
+        features = self.df.loc[self.current_step, self.feature_cols].values
+        obs[:len(features)] = features
         
-        obs = np.zeros(self.obs_dim, dtype=np.float32)
-        obs[-2:] = [equity_ratio, drawdown]
+        # FIX 1: Clamp the equity ratio to prevent float32 overflow memory crashes
+        # The AI will never "see" its account as being larger than 10x the starting balance
+        equity_ratio = float(np.clip(self.balance / self.initial_balance, 0.0, 10.0))
         
-        # CRITICAL FIREWALL: Prevent float overflow from crashing the network
-        # Clamp all inputs to a strict [-10, 10] neural range
-        obs = np.clip(obs, -10.0, 10.0)
+        peak_equity = max(self.initial_balance, self.peak_balance)
+        self.peak_balance = max(peak_equity, self.balance)
+        drawdown = float(np.clip((self.peak_balance - self.balance) / self.peak_balance, 0.0, 1.0))
         
-        # Catch stray NaNs resulting from division by zero edge cases
-        if np.isnan(obs).any():
-            obs = np.nan_to_num(obs)
+        obs[-2] = equity_ratio
+        obs[-1] = drawdown
+        
+        # Final safety clamp for NN stability
+        return np.clip(obs, -10.0, 10.0)
+        
+    def step(self, action):
+        direction_val = action[0]
+        size_val = action[1]
+        tp_val = action[2]
+        sl_val = action[3]
+        
+        direction = 0
+        if direction_val > 0.33: direction = 1
+        elif direction_val < -0.33: direction = 2
             
-        return obs
-
-    def step(self, action: np.ndarray):
-        direction, size_pct, tp_mult, sl_mult = self._map_action(action)
-        
         simulated_pnl = 0.0
+        tp_mult_used = 0.0
+        sl_mult_used = 0.0
+        
         if direction != 0:
-            hit_tp = np.random.rand() > 0.6 
-            if hit_tp:
-                simulated_pnl = (self.balance * size_pct) * (tp_mult * 0.01)
-            else:
-                simulated_pnl = -(self.balance * size_pct) * (sl_mult * 0.01)
-
-        self.balance += simulated_pnl
-        self.equity = self.balance
-        
-        if self.equity > self.peak_equity:
-            self.peak_equity = self.equity
+            risk_pct = ((size_val + 1.0) / 2.0) * 0.05
+            tp_mult_used = ((tp_val + 1.0) / 2.0) * 4.0 + 1.0
+            sl_mult_used = ((sl_val + 1.0) / 2.0) * 1.5 + 0.5
             
-        drawdown = (self.peak_equity - self.equity) / self.peak_equity
+            amount_at_risk = self.balance * risk_pct
+            
+            # AI Probability Simulation
+            prob_win = self.df.loc[self.current_step, 'prob_long'] if direction == 1 else self.df.loc[self.current_step, 'prob_short']
+            
+            if np.random.rand() < prob_win:
+                simulated_pnl = amount_at_risk * (tp_mult_used / sl_mult_used)
+            else:
+                simulated_pnl = -amount_at_risk
+                
+        self.balance += simulated_pnl
         
-        # ===========================SWING CONFIG=============================
-        # raw_reward = simulated_pnl - (drawdown * self.initial_balance * 0.5)
+        peak_equity = max(self.initial_balance, self.peak_balance)
+        self.peak_balance = max(peak_equity, self.balance)
+        drawdown = (self.peak_balance - self.balance) / self.peak_balance
         
-        # # Scale the reward, then strictly bound it
-        # reward = raw_reward / (self.initial_balance * 0.01)
-        # reward = float(np.clip(reward, -10.0, 10.0))
-        # ===========================SWING CONFIG=============================
-
-
-        # 1. Softened Drawdown Penalty (0.1 instead of 0.5)
+        # REWARD CALCULATION: Softened Drawdown Penalty (0.1 multiplier)
         raw_reward = simulated_pnl - (drawdown * self.initial_balance * 0.1)
-        # Scale the reward to the neural range
         reward = raw_reward / (self.initial_balance * 0.01)
-        # 2. Inactivity Penalty: Nudge the agent to find trades
-        if direction == 0:  # If action is 'Hold'
-            reward -= 0.05  # Slight bleed to encourage market participation
-        # Strictly bound it
-        reward = float(np.clip(reward, -10.0, 10.0))
-
-
-        self.current_step += 1
         
-        terminated = bool(self.equity <= self.initial_balance * 0.1) 
-        truncated = bool(self.current_step >= len(self.df) - 1)
+        # REWARD CALCULATION: Opportunity Cost / Inactivity penalty
+        # This creates the "ticking clock" that forces the agent to take trades
+        if direction == 0:
+            reward -= 0.05
+            
+        reward = float(np.clip(reward, -10.0, 10.0))
+        
+        self.current_step += 1
+        terminated = self.balance < (self.initial_balance * 0.1)
+        truncated = self.current_step >= len(self.df) - 1
         
         info = {
-            "balance": self.balance,
-            "drawdown": drawdown,
-            "tp_mult_used": tp_mult,
-            "sl_mult_used": sl_mult
+            'balance': self.balance,
+            'drawdown': drawdown,
+            'tp_mult_used': tp_mult_used,
+            'sl_mult_used': sl_mult_used
         }
         
-        return self._get_observation(), reward, terminated, truncated, info
+        return self._get_obs(), reward, terminated, truncated, info
