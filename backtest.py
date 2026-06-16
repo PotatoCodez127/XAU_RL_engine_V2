@@ -47,23 +47,20 @@ def generate_report(journal_df: pd.DataFrame, equity_curve: list):
         print("\nNo trades were taken during the backtest period.")
         return
 
-    # Separate Wins and Losses
     wins = journal_df[journal_df['PnL_$'] > 0]
     losses = journal_df[journal_df['PnL_$'] <= 0]
     
     total_trades = len(journal_df)
     winrate = (len(wins) / total_trades) * 100 if total_trades > 0 else 0
 
-    # Calculate $ Metrics
     avg_win_usd = wins['PnL_$'].mean() if len(wins) > 0 else 0
     max_win_usd = wins['PnL_$'].max() if len(wins) > 0 else 0
     min_win_usd = wins['PnL_$'].min() if len(wins) > 0 else 0
 
     avg_loss_usd = losses['PnL_$'].mean() if len(losses) > 0 else 0
-    max_loss_usd = losses['PnL_$'].min() if len(losses) > 0 else 0 # Minimum is the biggest negative number
-    min_loss_usd = losses['PnL_$'].max() if len(losses) > 0 else 0 # Maximum negative is the smallest loss
+    max_loss_usd = losses['PnL_$'].min() if len(losses) > 0 else 0 
+    min_loss_usd = losses['PnL_$'].max() if len(losses) > 0 else 0 
     
-    # Calculate Multiplier Metrics (Proxy for Pips/Distance)
     avg_tp_mult = wins['Take_Profit_Mult'].mean() if len(wins) > 0 else 0
     max_tp_mult = wins['Take_Profit_Mult'].max() if len(wins) > 0 else 0
     min_tp_mult = wins['Take_Profit_Mult'].min() if len(wins) > 0 else 0
@@ -78,22 +75,30 @@ def generate_report(journal_df: pd.DataFrame, equity_curve: list):
     print(f"Total Trades Taken:   {total_trades}")
     print(f"Winrate:              {winrate:.2f}%")
     print(f"Final Equity:         ${equity_curve[-1]:.2f}")
-    print(f"Max Drawdown:         {journal_df['Drawdown_%'].max():.2f}%\n")
     
-    print("--- TAKE PROFIT METRICS ---")
+    # Calculate True Drawdown from the normalized equity curve
+    peak = 10000.0
+    max_dd = 0.0
+    for val in equity_curve:
+        if val > peak: peak = val
+        dd = (peak - val) / peak
+        if dd > max_dd: max_dd = dd
+    print(f"Max Drawdown:         {max_dd * 100:.2f}%\n")
+    
+    print("--- TAKE PROFIT METRICS (Normalized $100 Risk) ---")
     print(f"Average Win:          +${avg_win_usd:.2f} (Avg TP Mult: {avg_tp_mult:.2f}x)")
     print(f"Largest Win:          +${max_win_usd:.2f} (Max TP Mult: {max_tp_mult:.2f}x)")
     print(f"Smallest Win:         +${min_win_usd:.2f} (Min TP Mult: {min_tp_mult:.2f}x)\n")
     
-    print("--- STOP LOSS METRICS ---")
+    print("--- STOP LOSS METRICS (Normalized $100 Risk) ---")
     print(f"Average Loss:         ${avg_loss_usd:.2f} (Avg SL Mult: {avg_sl_mult:.2f}x)")
     print(f"Largest Loss:         ${max_loss_usd:.2f} (Max SL Mult: {max_sl_mult:.2f}x)")
     print(f"Smallest Loss:        ${min_loss_usd:.2f} (Min SL Mult: {min_sl_mult:.2f}x)")
     print("="*40)
 
-    # Generate Equity Curve Chart
+    # Chart Generation
     plt.figure(figsize=(12, 6))
-    plt.plot(equity_curve, label="Equity Curve", color='#00ffcc', linewidth=2)
+    plt.plot(equity_curve, label="Equity Curve (Fixed $100 Risk)", color='#00ffcc', linewidth=2)
     plt.fill_between(range(len(equity_curve)), equity_curve, min(equity_curve) * 0.99, color='#00ffcc', alpha=0.1)
     
     plt.title("RL Agent Equity Curve (Out of Sample)", fontsize=16, color='white')
@@ -101,7 +106,6 @@ def generate_report(journal_df: pd.DataFrame, equity_curve: list):
     plt.ylabel("Account Balance ($)", fontsize=12, color='white')
     plt.grid(color='#333333', linestyle='--', linewidth=0.5)
     
-    # Dark Mode Styling
     ax = plt.gca()
     ax.set_facecolor('#1e1e1e')
     plt.gcf().patch.set_facecolor('#1e1e1e')
@@ -148,7 +152,7 @@ def run_backtest():
     truncated = False
     
     journal = []
-    equity_curve = [10000.0] # Starting balance
+    equity_curve = [10000.0] 
     
     while not (terminated or truncated):
         previous_balance = env.balance
@@ -157,27 +161,40 @@ def run_backtest():
         obs, reward, terminated, truncated, info = env.step(action)
         
         current_balance = env.balance
-        equity_curve.append(current_balance)
         
         direction_val = 0
         if action[0] > 0.33: direction_val = 1
         elif action[0] < -0.33: direction_val = 2
         
         if direction_val != 0:
-            trade_pnl = current_balance - previous_balance
+            # FIX 2: Flat Risk Normalization
+            flat_risk_usd = 100.0
+            
+            sl_mult = info.get('sl_mult_used', 0.5)
+            tp_mult = info.get('tp_mult_used', 5.0)
+            
+            if current_balance > previous_balance:
+                rr_ratio = tp_mult / sl_mult if sl_mult > 0 else 1
+                trade_pnl = flat_risk_usd * rr_ratio
+            else:
+                trade_pnl = -flat_risk_usd
+                
+            normalized_balance = equity_curve[-1] + trade_pnl
+            equity_curve.append(normalized_balance)
             
             journal.append({
                 "Step": env.current_step,
                 "Action": "Long" if direction_val == 1 else "Short",
-                "Position_Size_%": round(((action[1] + 1) / 2) * 5, 2),
-                "Take_Profit_Mult": round(info.get('tp_mult_used', 0), 2),
-                "Stop_Loss_Mult": round(info.get('sl_mult_used', 0), 2),
+                "Position_Size_%": "FLAT $100 RISK",
+                "Take_Profit_Mult": round(tp_mult, 2),
+                "Stop_Loss_Mult": round(sl_mult, 2),
                 "PnL_$": round(trade_pnl, 2),
-                "Equity": round(current_balance, 2),
-                "Drawdown_%": round(info.get('drawdown', 0) * 100, 2)
+                "Equity": round(normalized_balance, 2)
             })
+        else:
+            # If it holds, equity stays the same
+            equity_curve.append(equity_curve[-1])
 
-    # Generate the beautiful output
     generate_report(pd.DataFrame(journal), equity_curve)
 
 if __name__ == "__main__":
