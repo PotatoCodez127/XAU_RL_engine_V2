@@ -7,21 +7,19 @@ FEATURES_PATH = "data/processed/labeled_features_15m.csv"
 ORACLE_WEIGHTS = "models/oracle/best_oracle.pth"
 
 # --- THE CONTINUOUS TRAINING CONTROLS ---
-START_SPLIT = 0
+START_SPLIT = 0 
 END_SPLIT = 56
 
-# If resuming after a crash, point this to the last successfully completed zip file
-# Example: "models/manager/saved/wfa_14/best_model.zip"
 RESUME_SAC_PATH = None 
 
 def main():
     print("=== XAU RL Engine V2: Master Brain Initialization ===")
     
     pipeline = WalkForwardPipeline(FEATURES_PATH, embargo_bars=50)
-    pipeline.load_data()
+    pipeline.load_data(holdout_fraction=0.2)
     
     splits = pipeline.generate_splits(train_size=10000, test_size=2500, step_size=2500)
-    print(f"Generated {len(splits)} Walk-Forward Splits.")
+    print(f"Generated {len(splits)} Walk-Forward Splits within the 80% boundary.")
 
     current_sac_path = RESUME_SAC_PATH
 
@@ -43,7 +41,6 @@ def main():
         print("PHASE B: SAC Agent Training")
         manager_pipeline = ManagerPipeline(FEATURES_PATH, dxy_path="", oracle_weights_path=ORACLE_WEIGHTS)
         
-        # Train and capture the path to the newly saved weights
         current_sac_path = manager_pipeline.train_wfa_split(
             split_idx=idx, 
             train_df=train_df, 

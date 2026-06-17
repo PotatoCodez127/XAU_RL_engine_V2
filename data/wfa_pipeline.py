@@ -10,9 +10,12 @@ class WalkForwardPipeline:
         self.embargo_bars = embargo_bars
         self.master_df = None
 
-    def load_data(self) -> pd.DataFrame:
-        # Load the engineered 15m dataset
+    def load_data(self, holdout_fraction: float = 0.2) -> pd.DataFrame:
         self.master_df = pd.read_csv(self.features_path, index_col=0, parse_dates=True)
+        if holdout_fraction > 0:
+            train_boundary = int(len(self.master_df) * (1 - holdout_fraction))
+            self.master_df = self.master_df.iloc[:train_boundary]
+            
         return self.master_df
 
     def generate_splits(self, train_size: int, test_size: int, step_size: int) -> List[Dict[str, pd.DataFrame]]:
