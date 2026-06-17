@@ -126,7 +126,7 @@ def generate_report(journal_df: pd.DataFrame, equity_curve: list):
 def run_backtest():
     print("=== XAU RL V2 Backtest Engine ===")
     
-    features_path = "data/processed/labeled_features_15m.csv"
+    features_path = "data/processed/unseen_features_15m.csv"
     oracle_path = "models/oracle/best_oracle.pth"
     manager_path = "models/manager/saved/wfa_55/best_model.zip" 
     
@@ -134,11 +134,8 @@ def run_backtest():
         print(f"ERROR: Could not find final manager weights at {manager_path}")
         return
 
-    raw_df = pd.read_csv(features_path, index_col=0, parse_dates=True)
-    
-    # Backtest on the last 20% of data (Out of Sample)
-    test_size = int(len(raw_df) * 0.2)
-    test_df = raw_df.iloc[-test_size:].copy()
+    # 2. Load the unseen data
+    test_df = pd.read_csv(features_path, index_col=0, parse_dates=True)
     
     enriched_df = precompute_probabilities(test_df, oracle_path)
     
