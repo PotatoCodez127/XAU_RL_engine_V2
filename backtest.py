@@ -158,6 +158,12 @@ def run_backtest():
     journal = []
     equity_curve = [10000.0] 
     
+    # Ensure backtester matches env architectural constants
+    cooldown_timer = 0
+    oracle_threshold = 0.85
+    friction_cost = 10.0
+    cooldown_duration = 24
+    
     while not (terminated or truncated):
         previous_balance = env.balance
         
@@ -170,33 +176,53 @@ def run_backtest():
         if action[0] > 0.33: direction_val = 1
         elif action[0] < -0.33: direction_val = 2
         
+        # Access probabilities via the info dict passed from the new environment step
+        prob_long = info.get('prob_long', 0.0)
+        prob_short = info.get('prob_short', 0.0)
+        
+        # Mirror the environment logic to know if a trade actually executed
+        trade_executed = False
+        
+        if cooldown_timer > 0:
+            direction_val = 0
+            cooldown_timer -= 1
+        else:
+            if direction_val == 1 and prob_long < oracle_threshold:
+                direction_val = 0
+            elif direction_val == 2 and prob_short < oracle_threshold:
+                direction_val = 0
+
         if direction_val != 0:
-            # FIX 2: Flat Risk Normalization
             flat_risk_usd = 100.0
-            
             sl_mult = info.get('sl_mult_used', 0.5)
             tp_mult = info.get('tp_mult_used', 5.0)
             
             if current_balance > previous_balance:
                 rr_ratio = tp_mult / sl_mult if sl_mult > 0 else 1
-                trade_pnl = flat_risk_usd * rr_ratio
+                trade_pnl = (flat_risk_usd * rr_ratio) - friction_cost
             else:
-                trade_pnl = -flat_risk_usd
+                trade_pnl = -flat_risk_usd - friction_cost
                 
             normalized_balance = equity_curve[-1] + trade_pnl
             equity_curve.append(normalized_balance)
             
+            # Reset cooldown for the backtest loop tracker
+            cooldown_timer = cooldown_duration
+            
             journal.append({
-                "Step": env.current_step,
+                "Step": env.current_step - 1, # Account for the step increment inside env
                 "Action": "Long" if direction_val == 1 else "Short",
                 "Position_Size_%": "FLAT $100 RISK",
                 "Take_Profit_Mult": round(tp_mult, 2),
                 "Stop_Loss_Mult": round(sl_mult, 2),
+                "Oracle_Prob_Long": round(prob_long, 4),
+                "Oracle_Prob_Short": round(prob_short, 4),
+                "Friction_Cost": friction_cost,
                 "PnL_$": round(trade_pnl, 2),
                 "Equity": round(normalized_balance, 2)
             })
         else:
-            # If it holds, equity stays the same
+            # Equity stays flat if holding or locked out
             equity_curve.append(equity_curve[-1])
 
     generate_report(pd.DataFrame(journal), equity_curve)
