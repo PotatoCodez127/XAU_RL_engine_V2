@@ -150,8 +150,6 @@ def run_backtest():
     env = XAUDynamicEnv(df=enriched_df)
     model = SAC.load(manager_path, env=env)
     
-    # ... (The rest of the simulation loop remains exactly the same) ...
-    
     print("Running Simulation...")
     obs, info = env.reset()
     terminated = False
