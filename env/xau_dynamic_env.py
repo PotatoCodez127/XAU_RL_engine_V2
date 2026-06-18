@@ -10,18 +10,17 @@ class XAUDynamicEnv(gym.Env):
         self.df = df.reset_index(drop=True)
         self.initial_balance = initial_balance
         
-        # Action Space: [Direction (Hold/Long/Short), Size%, TP Mult, SL Mult]
-        # Direction: [-1, -0.33] = Short, [-0.33, 0.33] = Hold, [0.33, 1.0] = Long
-        # Size: [-1, 1] mapped to 0% - 5% risk
-        # TP Mult: [-1, 1] mapped to 1.0x - 5.0x
-        # SL Mult: [-1, 1] mapped to 0.5x - 2.0x
+        # --- NEW ARCHITECTURAL CONSTANTS ---
+        self.friction_cost = 10.0      # Simulates spread/commission
+        self.oracle_threshold = 0.85   # 85% probability gate
+        self.cooldown_duration = 24    # 6 hours on 15m timeframe
+        # -----------------------------------
+        
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float32)
         
-        # Observation Space
         exclude_cols = ['target', 'time', 'datetime', 'date']
         self.feature_cols = [c for c in df.columns if c not in exclude_cols and not c.startswith('env_')]
         
-        # Add 2 to observation space for equity_ratio and drawdown
         self.observation_space = spaces.Box(low=-10.0, high=10.0, shape=(len(self.feature_cols) + 2,), dtype=np.float32)
         
         self.current_step = 30 
@@ -29,11 +28,15 @@ class XAUDynamicEnv(gym.Env):
         self.peak_balance = self.initial_balance
         self.state = np.zeros(self.observation_space.shape[0])
         
+        # Initialize timer
+        self.cooldown_timer = 0
+        
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = 30
         self.balance = self.initial_balance
         self.peak_balance = self.initial_balance
+        self.cooldown_timer = 0 
         return self._get_obs(), {}
         
     def _get_obs(self):
@@ -41,10 +44,7 @@ class XAUDynamicEnv(gym.Env):
         features = self.df.loc[self.current_step, self.feature_cols].values
         obs[:len(features)] = features
         
-        # FIX 1: Clamp the equity ratio to prevent float32 overflow memory crashes
-        # The AI will never "see" its account as being larger than 10x the starting balance
         equity_ratio = float(np.clip(self.balance / self.initial_balance, 0.0, 10.0))
-        
         peak_equity = max(self.initial_balance, self.peak_balance)
         self.peak_balance = max(peak_equity, self.balance)
         drawdown = float(np.clip((self.peak_balance - self.balance) / self.peak_balance, 0.0, 1.0))
@@ -52,7 +52,6 @@ class XAUDynamicEnv(gym.Env):
         obs[-2] = equity_ratio
         obs[-1] = drawdown
         
-        # Final safety clamp for NN stability
         return np.clip(obs, -10.0, 10.0)
         
     def step(self, action):
@@ -64,6 +63,20 @@ class XAUDynamicEnv(gym.Env):
         direction = 0
         if direction_val > 0.33: direction = 1
         elif direction_val < -0.33: direction = 2
+        
+        # --- MECHANISM 2: Algorithmic Cooldown ---
+        if self.cooldown_timer > 0:
+            direction = 0
+            self.cooldown_timer -= 1
+
+        # --- MECHANISM 3: Oracle Confidence Gate ---
+        prob_long = self.df.loc[self.current_step, 'prob_long']
+        prob_short = self.df.loc[self.current_step, 'prob_short']
+        
+        if direction == 1 and prob_long < self.oracle_threshold:
+            direction = 0
+        elif direction == 2 and prob_short < self.oracle_threshold:
+            direction = 0
             
         simulated_pnl = 0.0
         tp_mult_used = 0.0
@@ -73,16 +86,20 @@ class XAUDynamicEnv(gym.Env):
             risk_pct = ((size_val + 1.0) / 2.0) * 0.05
             tp_mult_used = ((tp_val + 1.0) / 2.0) * 4.0 + 1.0
             sl_mult_used = ((sl_val + 1.0) / 2.0) * 1.5 + 0.5
-            
             amount_at_risk = self.balance * risk_pct
             
-            # AI Probability Simulation
-            prob_win = self.df.loc[self.current_step, 'prob_long'] if direction == 1 else self.df.loc[self.current_step, 'prob_short']
+            prob_win = prob_long if direction == 1 else prob_short
             
             if np.random.rand() < prob_win:
                 simulated_pnl = amount_at_risk * (tp_mult_used / sl_mult_used)
             else:
                 simulated_pnl = -amount_at_risk
+                
+            # --- MECHANISM 1: Friction Injection ---
+            simulated_pnl -= self.friction_cost
+            
+            # Activate Cooldown
+            self.cooldown_timer = self.cooldown_duration
                 
         self.balance += simulated_pnl
         
@@ -90,12 +107,9 @@ class XAUDynamicEnv(gym.Env):
         self.peak_balance = max(peak_equity, self.balance)
         drawdown = (self.peak_balance - self.balance) / self.peak_balance
         
-        # REWARD CALCULATION: Softened Drawdown Penalty (0.1 multiplier)
         raw_reward = simulated_pnl - (drawdown * self.initial_balance * 0.1)
         reward = raw_reward / (self.initial_balance * 0.01)
         
-        # REWARD CALCULATION: Opportunity Cost / Inactivity penalty
-        # This creates the "ticking clock" that forces the agent to take trades
         if direction == 0:
             reward -= 0.05
             
@@ -109,7 +123,10 @@ class XAUDynamicEnv(gym.Env):
             'balance': self.balance,
             'drawdown': drawdown,
             'tp_mult_used': tp_mult_used,
-            'sl_mult_used': sl_mult_used
+            'sl_mult_used': sl_mult_used,
+            'cooldown_active': self.cooldown_timer > 0,
+            'prob_long': prob_long,
+            'prob_short': prob_short
         }
         
         return self._get_obs(), reward, terminated, truncated, info
