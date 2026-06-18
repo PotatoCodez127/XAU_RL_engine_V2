@@ -7,7 +7,7 @@ FEATURES_PATH = "data/processed/labeled_features_15m.csv"
 ORACLE_WEIGHTS = "models/oracle/best_oracle.pth"
 
 # --- THE CONTINUOUS TRAINING CONTROLS ---
-START_SPLIT = 0 
+START_SPLIT = 43
 END_SPLIT = 56
 
 RESUME_SAC_PATH = None 
