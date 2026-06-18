@@ -26,4 +26,11 @@ Architectural Targets to Implement:
 3. Confidence Gatekeeping (Oracle Filtering):
    Introduce a strict probability gate inside the execution phase. The environment must evaluate the precomputed Oracle vectors (`prob_long`, `prob_short`). If the Oracle's confidence score for the selected direction does not exceed an explicit certainty threshold (e.g., 0.85), the action must be overridden to a 'Hold' state before processing portfolio metrics.
 
-Please review the codebase files, verify the reward metrics inside your context, explain your implementation approach step-by-step, and wait for confirmation before writing code.
+## 5. Architectural Fixes Implemented (Anti-Hyperactivity)
+To resolve EV farming and micro-scalping, three structural layers were integrated into `XAUDynamicEnv` and aligned in `backtest.py`:
+
+1. **Transaction Friction:** A fixed $10 transaction penalty is applied to the PnL of every executed trade to simulate broker spread and eliminate high-frequency, low-margin arbitrage.
+
+2. **Algorithmic Cooldown:** A 24-step (6-hour) mandatory lockout period (`self.cooldown_timer`) is triggered post-execution, physically capping maximum trading frequency to 1-2 times per day.
+
+3. **Oracle Gatekeeping:** An explicit certainty threshold (`self.oracle_threshold = 0.85`) restricts the SAC network from entering positions unless the Phase A Attention network provides high-confidence directional vectors. Logging has been expanded to surface these probabilities natively in the out-of-sample WFA reports.
