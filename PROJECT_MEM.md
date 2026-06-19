@@ -29,3 +29,7 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 * **Bottleneck Identified:** Imposing an arbitrary absolute probability threshold (0.55+) alongside a step-by-step inactivity penalty caused complete policy gradient collapse in the SAC Manager, resulting in a 100% "Hold" paralysis.
 * **Current Solution Path:** Decoupling the Phase A Oracle thresholding from the Phase B step-by-step reward function. A standalone vectorization script (`param_sweeper.py`) has been integrated to mathematically isolate the exact softmax threshold required to achieve a 1-2 trade/day frequency *before* initializing WFA training loops.
 * **Next Implementation:** Transitioning `XAUDynamicEnv` to an Event-Driven architecture where the agent is only queried for action sizing when the verified threshold is triggered.
+
+## 6. Deployment: Event-Driven Architecture
+* **Final Calibration:** Parameter sweep confirmed `0.36` as the optimal probability threshold, yielding an estimated 1-2 trades per day over the validation set.
+* **Neutral-Hold State Implementation:** The `-0.05` inactivity penalty was permanently removed from `XAUDynamicEnv`. The system now operates on an event-driven basis: the SAC Agent is only queried and rewarded when the Phase A Oracle's certainty actively exceeds `0.36`. During all other periods, the environment passively forces a `Hold` without penalizing the agent's policy gradients, resolving the "paralysis block".
