@@ -24,3 +24,8 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 1. **Transaction Friction:** Introduction of a dynamic or flat transaction fee per entry (simulating a 1-pip spread/commission) to eliminate micro-scalping profitability.
 2. **Algorithmic Cooldown:** A mandatory execution lockout period (e.g., 24 steps / 6 hours) inside the environment tracking immediately following a trade closure.
 3. **Deterministic Oracle Gating:** Restricting the SAC Manager from executing positions unless the underlying Phase A Attention network's categorical certainty exceeds a critical threshold (e.g., > 85%).
+
+## 5. Optimization Phase: Fast Parameter Sweeping
+* **Bottleneck Identified:** Imposing an arbitrary absolute probability threshold (0.55+) alongside a step-by-step inactivity penalty caused complete policy gradient collapse in the SAC Manager, resulting in a 100% "Hold" paralysis.
+* **Current Solution Path:** Decoupling the Phase A Oracle thresholding from the Phase B step-by-step reward function. A standalone vectorization script (`param_sweeper.py`) has been integrated to mathematically isolate the exact softmax threshold required to achieve a 1-2 trade/day frequency *before* initializing WFA training loops.
+* **Next Implementation:** Transitioning `XAUDynamicEnv` to an Event-Driven architecture where the agent is only queried for action sizing when the verified threshold is triggered.
