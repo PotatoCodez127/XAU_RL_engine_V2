@@ -33,3 +33,7 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 ## 6. Deployment: Event-Driven Architecture
 * **Final Calibration:** Parameter sweep confirmed `0.36` as the optimal probability threshold, yielding an estimated 1-2 trades per day over the validation set.
 * **Neutral-Hold State Implementation:** The `-0.05` inactivity penalty was permanently removed from `XAUDynamicEnv`. The system now operates on an event-driven basis: the SAC Agent is only queried and rewarded when the Phase A Oracle's certainty actively exceeds `0.36`. During all other periods, the environment passively forces a `Hold` without penalizing the agent's policy gradients, resolving the "paralysis block".
+
+## 7. Operational Protocol: Cloud Runtime Recovery
+* **State Management:** When executing chunked training across ephemeral cloud instances, runtime timeouts destroy the dynamic memory handoff in the WFA master loop. 
+* **The Continuity Rule:** If a session is interrupted and restarted at `START_SPLIT = X`, the `RESUME_SAC_PATH` variable in `main.py` must explicitly be set to the path of `wfa_{X-1}`'s saved weights. Leaving this variable as `None` upon restart will induce amnesia, causing the SAC manager to initialize a blank network for the current split and overwrite all previous WFA progression.
