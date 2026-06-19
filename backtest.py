@@ -160,7 +160,7 @@ def run_backtest():
     
     # Ensure backtester matches env architectural constants
     cooldown_timer = 0
-    oracle_threshold = 0.85
+    oracle_threshold = 0.40  # Calibrated down to 0.40
     friction_cost = 10.0
     cooldown_duration = 24
     
