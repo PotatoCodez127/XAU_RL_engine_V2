@@ -12,7 +12,7 @@ class XAUDynamicEnv(gym.Env):
         
         # --- NEW ARCHITECTURAL CONSTANTS ---
         self.friction_cost = 10.0      # Simulates spread/commission
-        self.oracle_threshold = 0.85   # 85% probability gate
+        self.oracle_threshold = 0.40   # Calibrated to 0.40 to allow execution on strong relative probability
         self.cooldown_duration = 24    # 6 hours on 15m timeframe
         # -----------------------------------
         
