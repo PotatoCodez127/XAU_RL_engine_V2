@@ -70,7 +70,7 @@ def generate_report(journal_df: pd.DataFrame, equity_curve: list):
     min_sl_mult = losses['Stop_Loss_Mult'].min() if len(losses) > 0 else 0
 
     print("\n" + "="*40)
-    print(" 🚀 XAU RL V2 PERFORMANCE REPORT 🚀")
+    print(" ⚜️ XAU RL V2 PERFORMANCE REPORT ⚜️")
     print("="*40)
     print(f"Total Trades Taken:   {total_trades}")
     print(f"Winrate:              {winrate:.2f}%")
@@ -117,7 +117,7 @@ def generate_report(journal_df: pd.DataFrame, equity_curve: list):
     
     chart_path = "logs/equity_curve.png"
     plt.savefig(chart_path, bbox_inches='tight')
-    print(f"\n📈 Equity Curve chart saved to: {chart_path}")
+    print(f"\n📊 Equity Curve chart saved to: {chart_path}")
     
     journal_path = "logs/final_backtest_journal.csv"
     journal_df.to_csv(journal_path, index=False)
@@ -160,7 +160,7 @@ def run_backtest():
     
     # Ensure backtester matches env architectural constants
     cooldown_timer = 0
-    oracle_threshold = 0.40  # Calibrated down to 0.40
+    oracle_threshold = 0.36  # Calibrated via parameter sweep
     friction_cost = 10.0
     cooldown_duration = 24
     
