@@ -12,7 +12,7 @@ class XAUDynamicEnv(gym.Env):
         
         # --- NEW ARCHITECTURAL CONSTANTS ---
         self.friction_cost = 10.0      # Simulates spread/commission
-        self.oracle_threshold = 0.40   # Calibrated to 0.40 to allow execution on strong relative probability
+        self.oracle_threshold = 0.36   # Calibrated to 0.36 via sweep for ~1-2 trades/day
         self.cooldown_duration = 24    # 6 hours on 15m timeframe
         # -----------------------------------
         
@@ -69,7 +69,7 @@ class XAUDynamicEnv(gym.Env):
             direction = 0
             self.cooldown_timer -= 1
 
-        # --- MECHANISM 3: Oracle Confidence Gate ---
+        # --- MECHANISM 3: Oracle Confidence Gate (Event Trigger) ---
         prob_long = self.df.loc[self.current_step, 'prob_long']
         prob_short = self.df.loc[self.current_step, 'prob_short']
         
@@ -110,8 +110,7 @@ class XAUDynamicEnv(gym.Env):
         raw_reward = simulated_pnl - (drawdown * self.initial_balance * 0.1)
         reward = raw_reward / (self.initial_balance * 0.01)
         
-        if direction == 0:
-            reward -= 0.05
+        # NOTE: The -0.05 Inactivity Penalty has been completely removed to establish a Neutral-Hold state.
             
         reward = float(np.clip(reward, -10.0, 10.0))
         
