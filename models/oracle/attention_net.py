@@ -25,61 +25,55 @@ class PositionalEncoding(nn.Module):
         return x
 
 class TemporalAttentionOracle(nn.Module):
-    def __init__(self, input_dim: int, seq_len: int = 30, d_model: int = 64, n_heads: int = 4, num_classes: int = 3):
-        """
-        input_dim: Number of features (e.g., XAU close, DXY, 30m/4H zone distances)
-        seq_len: The lookback window (default 30)
-        num_classes: Hold (0), Long (1), Short (2)
-        """
-        super().__init__()
-        self.input_projection = nn.Linear(input_dim, d_model)
-        self.pos_encoder = PositionalEncoding(d_model, max_len=seq_len)
+    def __init__(self, input_dim, seq_len=30, num_heads=4, hidden_dim=64):
+        super(TemporalAttentionOracle, self).__init__()
         
-        # Self-Attention Layer
-        # batch_first=True expects (batch, seq, feature)
-        self.attention = nn.MultiheadAttention(embed_dim=d_model, num_heads=n_heads, batch_first=True)
+        # --- NEW: Learnable [CLS] Token ---
+        # This token will traverse the attention block and aggregate the temporal state
+        self.cls_token = nn.Parameter(torch.randn(1, 1, input_dim))
         
-        # Feed Forward Network
+        self.attention = nn.MultiheadAttention(embed_dim=input_dim, num_heads=num_heads, batch_first=True)
+        self.norm1 = nn.LayerNorm(input_dim)
+        
         self.ffn = nn.Sequential(
-            nn.Linear(d_model, d_model * 2),
-            nn.GELU(),
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
             nn.Dropout(0.2),
-            nn.Linear(d_model * 2, d_model)
+            nn.Linear(hidden_dim, input_dim)
         )
+        self.norm2 = nn.LayerNorm(input_dim)
         
-        self.layer_norm1 = nn.LayerNorm(d_model)
-        self.layer_norm2 = nn.LayerNorm(d_model)
-        
-        # Global Average Pooling and Final Classifier
+        # The classifier now only takes the output of the [CLS] token
         self.classifier = nn.Sequential(
-            nn.Linear(d_model, 32),
-            nn.GELU(),
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
             nn.Dropout(0.2),
-            nn.Linear(32, num_classes)
+            nn.Linear(hidden_dim, 3) # 3 Classes: Hold, Long, Short
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # 1. Project raw features into the model dimension
-        x = self.input_projection(x)
+    def forward(self, x):
+        # x shape: (batch_size, seq_len, input_dim)
+        batch_size = x.shape[0]
         
-        # 2. Add Positional Encoding
-        x = self.pos_encoder(x)
+        # 1. Expand the [CLS] token to match the batch size
+        cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         
-        # 3. Multi-Head Self Attention
+        # 2. Prepend the [CLS] token to the sequence
+        # New shape: (batch_size, seq_len + 1, input_dim)
+        x = torch.cat((cls_tokens, x), dim=1)
+        
+        # 3. Pass through Temporal Attention
         attn_out, _ = self.attention(x, x, x)
-        x = self.layer_norm1(x + attn_out) # Residual connection
+        x = self.norm1(x + attn_out)
         
-        # 4. Feed Forward
+        # 4. Feed-Forward Network
         ffn_out = self.ffn(x)
-        x = self.layer_norm2(x + ffn_out) # Residual connection
+        x = self.norm2(x + ffn_out)
         
-        # 5. Global Average Pooling (collapse the sequence dimension)
-        # We average across the 30 candles to get a single summary vector per batch
-        x = x.mean(dim=1) 
+        # 5. Extraction: Pull ONLY the state of the [CLS] token (index 0)
+        # We no longer destroy chronology with x.mean(dim=1)
+        cls_state = x[:, 0, :]
         
         # 6. Final Classification
-        logits = self.classifier(x)
-        
-        # Note: We return raw logits, NOT softmax probabilities. 
-        # The FocalLoss/CrossEntropyLoss handles the softmax internally for better numerical stability.
+        logits = self.classifier(cls_state)
         return logits
