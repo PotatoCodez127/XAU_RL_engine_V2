@@ -42,3 +42,8 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 * **Continuous Memory Integration:** Successfully bridged the WFA pipeline from Split 0 to Split 43, allowing the SAC agent to leverage long-term structural market memory.
 * **OOS Backtest Results:** The fully trained system achieved a net profitable return (+7.43%) over the 20% firewall holdout data. 
 * **Learned Edge:** The agent optimized for a trend-following risk profile, maintaining a low 6.37% Max Drawdown through tight Stop Losses (Avg 1.04x) while mathematically overpowering a 31.71% win rate by stretching Take Profits (Avg 3.92x). The system is officially structurally sound and ready for live forward testing.
+
+## 9. V3 Theoretical Upgrade Path
+* **Phase A Optimization:** Replaced sequence-collapsing Global Average Pooling (`x.mean`) with a learnable `[CLS]` token inside `attention_net.py` for precise chronological routing.
+* **Phase B Optimization:** Transitioned SAC `ent_coef` from a static integer to `'auto'` in `train_manager.py` for dynamic temperature scaling across shifting volatility regimes.
+* **Feature Pipeline (Pending):** Future data pipeline iterations will explore Fractional Differentiation for structural market memory and ATR-normalized momentum metrics.
