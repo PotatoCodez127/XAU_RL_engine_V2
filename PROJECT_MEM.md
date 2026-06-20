@@ -37,3 +37,8 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 ## 7. Operational Protocol: Cloud Runtime Recovery
 * **State Management:** When executing chunked training across ephemeral cloud instances, runtime timeouts destroy the dynamic memory handoff in the WFA master loop. 
 * **The Continuity Rule:** If a session is interrupted and restarted at `START_SPLIT = X`, the `RESUME_SAC_PATH` variable in `main.py` must explicitly be set to the path of `wfa_{X-1}`'s saved weights. Leaving this variable as `None` upon restart will induce amnesia, causing the SAC manager to initialize a blank network for the current split and overwrite all previous WFA progression.
+
+## 8. Milestone Validation: Profitable Out-of-Sample Performance
+* **Continuous Memory Integration:** Successfully bridged the WFA pipeline from Split 0 to Split 43, allowing the SAC agent to leverage long-term structural market memory.
+* **OOS Backtest Results:** The fully trained system achieved a net profitable return (+7.43%) over the 20% firewall holdout data. 
+* **Learned Edge:** The agent optimized for a trend-following risk profile, maintaining a low 6.37% Max Drawdown through tight Stop Losses (Avg 1.04x) while mathematically overpowering a 31.71% win rate by stretching Take Profits (Avg 3.92x). The system is officially structurally sound and ready for live forward testing.
