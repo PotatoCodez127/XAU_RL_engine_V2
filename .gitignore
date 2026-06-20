@@ -12,3 +12,4 @@ logs/
 tensorboard_runs/
 extract_logs.py
 v2_training_metrics.csv
+training_state.json
