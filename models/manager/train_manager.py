@@ -57,28 +57,23 @@ class ManagerPipeline:
         save_dir = f"./models/manager/saved/wfa_{split_idx}/"
         os.makedirs(save_dir, exist_ok=True)
         
-        # --- CONTINUOUS MEMORY LOGIC ---
+        # 1. ALWAYS initialize the explicit V3 architecture.
+        # This guarantees `ent_coef='auto'` and all optimizers are correctly built in PyTorch.
+        print("Initializing explicit V3 SAC Architecture...")
+        model = SAC(
+            "MlpPolicy", 
+            train_env, 
+            verbose=1,
+            device=self.device,
+            ent_coef='auto',
+            learning_rate=3e-4,
+            batch_size=256,
+            policy_kwargs=dict(net_arch=[128, 128])
+        )
+        # 2. If continuous memory exists, selectively inject the weights.
         if previous_sac_path and os.path.exists(previous_sac_path):
-            print(f"Loading Continuous Memory from: {previous_sac_path}")
-            model = SAC.load(previous_sac_path, env=train_env, device=self.device)
-            # Ensure the learning rate and entropy coefficient remain stable
-            model.learning_rate = 3e-4
-            model.ent_coef = 0.05
-        else:
-            print("Initializing fresh SAC Agent...")
-            policy_kwargs = dict(net_arch=[128, 128])
-            model = SAC(
-                "MlpPolicy", 
-                train_env, 
-                policy_kwargs=policy_kwargs,
-                learning_rate=3e-4,
-                buffer_size=50000,
-                batch_size=256,
-                ent_coef='auto',
-                target_update_interval=2, 
-                tensorboard_log=f"./logs/wfa_split_{split_idx}/",
-                device=self.device
-            )
+            print(f"Injecting Continuous Memory from: {previous_sac_path}")
+            model.set_parameters(previous_sac_path, exact_match=False)
         
         eval_callback = EvalCallback(
             val_env, 
