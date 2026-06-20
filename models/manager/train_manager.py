@@ -74,7 +74,7 @@ class ManagerPipeline:
                 learning_rate=3e-4,
                 buffer_size=50000,
                 batch_size=256,
-                ent_coef=0.05, 
+                ent_coef='auto',
                 target_update_interval=2, 
                 tensorboard_log=f"./logs/wfa_split_{split_idx}/",
                 device=self.device
