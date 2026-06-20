@@ -28,52 +28,63 @@ class TemporalAttentionOracle(nn.Module):
     def __init__(self, input_dim, seq_len=30, num_heads=4, hidden_dim=64):
         super(TemporalAttentionOracle, self).__init__()
         
-        # --- NEW: Learnable [CLS] Token ---
-        # This token will traverse the attention block and aggregate the temporal state
-        self.cls_token = nn.Parameter(torch.randn(1, 1, input_dim))
+        # --- NEW: Input Projection Layer ---
+        # Decouples raw CSV feature count from Transformer dimensions
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
         
-        self.attention = nn.MultiheadAttention(embed_dim=input_dim, num_heads=num_heads, batch_first=True)
-        self.norm1 = nn.LayerNorm(input_dim)
+        # --- NEW: Learnable [CLS] Token ---
+        # Sized to match the projected hidden_dim space
+        self.cls_token = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        
+        # Positional Encoding to ensure chronology is respected
+        self.pos_encoder = PositionalEncoding(d_model=hidden_dim, max_len=seq_len + 1)
+        
+        # Attention now operates purely on hidden_dim (64), making it perfectly divisible by num_heads (4)
+        self.attention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, batch_first=True)
+        self.norm1 = nn.LayerNorm(hidden_dim)
         
         self.ffn = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(hidden_dim, hidden_dim * 2),
             nn.ReLU(),
             nn.Dropout(0.2),
-            nn.Linear(hidden_dim, input_dim)
+            nn.Linear(hidden_dim * 2, hidden_dim)
         )
-        self.norm2 = nn.LayerNorm(input_dim)
+        self.norm2 = nn.LayerNorm(hidden_dim)
         
-        # The classifier now only takes the output of the [CLS] token
+        # The classifier now only takes the extracted output of the [CLS] token
         self.classifier = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(hidden_dim, 3) # 3 Classes: Hold, Long, Short
         )
 
     def forward(self, x):
-        # x shape: (batch_size, seq_len, input_dim)
+        # Raw x shape: (batch_size, seq_len, input_dim)
         batch_size = x.shape[0]
         
-        # 1. Expand the [CLS] token to match the batch size
+        # 1. Project raw features to standard Transformer dimensional space
+        # New shape: (batch_size, seq_len, hidden_dim)
+        x = self.input_proj(x)
+        
+        # 2. Expand and prepend the [CLS] token
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1) # Shape: (batch_size, seq_len + 1, hidden_dim)
         
-        # 2. Prepend the [CLS] token to the sequence
-        # New shape: (batch_size, seq_len + 1, input_dim)
-        x = torch.cat((cls_tokens, x), dim=1)
+        # 3. Apply Positional Encoding
+        x = self.pos_encoder(x)
         
-        # 3. Pass through Temporal Attention
+        # 4. Pass through Temporal Attention
         attn_out, _ = self.attention(x, x, x)
         x = self.norm1(x + attn_out)
         
-        # 4. Feed-Forward Network
+        # 5. Feed-Forward Network
         ffn_out = self.ffn(x)
         x = self.norm2(x + ffn_out)
         
-        # 5. Extraction: Pull ONLY the state of the [CLS] token (index 0)
-        # We no longer destroy chronology with x.mean(dim=1)
+        # 6. Extraction: Pull ONLY the state of the [CLS] token (index 0)
         cls_state = x[:, 0, :]
         
-        # 6. Final Classification
+        # 7. Final Classification
         logits = self.classifier(cls_state)
         return logits
