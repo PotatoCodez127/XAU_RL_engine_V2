@@ -43,7 +43,15 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 * **OOS Backtest Results:** The fully trained system achieved a net profitable return (+7.43%) over the 20% firewall holdout data. 
 * **Learned Edge:** The agent optimized for a trend-following risk profile, maintaining a low 6.37% Max Drawdown through tight Stop Losses (Avg 1.04x) while mathematically overpowering a 31.71% win rate by stretching Take Profits (Avg 3.92x). The system is officially structurally sound and ready for live forward testing.
 
-## 9. V3 Theoretical Upgrade Path
-* **Phase A Optimization:** Replaced sequence-collapsing Global Average Pooling (`x.mean`) with a learnable `[CLS]` token inside `attention_net.py` for precise chronological routing.
-* **Phase B Optimization:** Transitioned SAC `ent_coef` from a static integer to `'auto'` in `train_manager.py` for dynamic temperature scaling across shifting volatility regimes.
-* **Feature Pipeline (Pending):** Future data pipeline iterations will explore Fractional Differentiation for structural market memory and ATR-normalized momentum metrics.
+## 9. V3 Architectural Upgrades (Implemented)
+* **Phase A (Oracle) Transformation:** Replaced sequence-collapsing Global Average Pooling (`x.mean`) with a learnable `[CLS]` token inside `attention_net.py` for precise chronological routing of features.
+* **Phase B (Manager) Transformation:** Transitioned SAC `ent_coef` from a static integer to `'auto'` in `train_manager.py` for dynamic temperature scaling across shifting volatility regimes.
+* **Feature Pipeline Upgrades (Validated via Pytest):**
+  * Implemented **Fractional Differentiation** ($d=0.45$) via binomial expansion to achieve strict stationarity while preserving structural market memory.
+  * Implemented **Volatility-Normalized Context** via a 14-period rolling ATR. Momentum calculations and spatial distances (e.g., distance to 4H resistance) are now divided by the ATR, providing the Oracle with a Z-score of momentum relative to the current session's liquidity.
+
+## 10. Current Execution State
+* **V3 Data Pipeline:** Unit tests passed. The system is currently generating the new fractionally-differenced master dataset.
+* **Pending Milestones:**
+  1. Retrain the Phase A `TemporalAttentionOracle` on the new V3 features.
+  2. Execute the Walk-Forward Analysis (WFA) sequential training pipeline for the Phase B SAC Manager using the new Oracle and `'auto'` entropy architecture.
