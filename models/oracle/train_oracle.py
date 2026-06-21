@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.optim as optim
 import pandas as pd
@@ -43,10 +44,13 @@ def train_oracle_supervised(df: pd.DataFrame, save_path: str, epochs: int = 50):
     # Standard PyTorch Training Loop
     model.train()
     batch_size = 256
-    num_batches = len(features_tensor) // batch_size
+    num_batches = max(1, len(features_tensor) // batch_size)
     
     for epoch in range(epochs):
         epoch_loss = 0
+        correct = 0
+        total = 0
+        
         for i in range(0, len(features_tensor), batch_size):
             batch_x = features_tensor[i:i+batch_size]
             batch_y = targets_tensor[i:i+batch_size]
@@ -59,8 +63,36 @@ def train_oracle_supervised(df: pd.DataFrame, save_path: str, epochs: int = 50):
             
             epoch_loss += loss.item()
             
-        print(f"Epoch {epoch+1}/{epochs} | Focal Loss: {epoch_loss / max(1, num_batches):.4f}")
+            # --- NEW: Calculate Accuracy for monitoring ---
+            _, predicted = torch.max(logits.data, 1)
+            total += batch_y.size(0)
+            correct += (predicted == batch_y).sum().item()
+            
+        epoch_acc = 100 * correct / total if total > 0 else 0
+        print(f"Epoch {epoch+1}/{epochs} | Focal Loss: {epoch_loss / num_batches:.4f} | Accuracy: {epoch_acc:.2f}%")
 
     torch.save(model.state_dict(), save_path)
     print(f"Oracle weights saved to {save_path}")
     return model
+
+# ==========================================
+# STANDALONE EXECUTION BLOCK
+# ==========================================
+if __name__ == "__main__":
+    # Define absolute paths relative to your project root
+    DATA_PATH = "data/processed/labeled_features_15m.csv"
+    SAVE_PATH = "models/oracle/best_oracle.pth"
+    
+    if not os.path.exists(DATA_PATH):
+        print(f"ERROR: Master dataset not found at {DATA_PATH}.")
+        print("Please run 'python -m data.build_features' first.")
+        exit(1)
+        
+    print(f"Loading V3 Master Dataset from {DATA_PATH}...")
+    master_df = pd.read_csv(DATA_PATH, parse_dates=True)
+    
+    # Ensure the target directory exists before attempting to save
+    os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
+    
+    # Trigger the training sequence
+    train_oracle_supervised(df=master_df, save_path=SAVE_PATH, epochs=50)
