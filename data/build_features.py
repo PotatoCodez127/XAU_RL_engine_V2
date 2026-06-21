@@ -64,6 +64,22 @@ class FeatureEngineer:
             
         return df
 
+    # --- NEW V3 MATH METHODS ---
+    def _get_fractional_weights(self, d: float, size: int) -> np.ndarray:
+        w = [1.0]
+        for k in range(1, size):
+            w_ = -w[-1] / k * (d - k + 1)
+            w.append(w_)
+        return np.array(w[::-1]).reshape(-1, 1)
+
+    def apply_fractional_differentiation(self, series: pd.Series, d: float, window: int = 50) -> pd.Series:
+        weights = self._get_fractional_weights(d, window)
+        def frac_dot_product(x):
+            if len(x) == window: return np.dot(x, weights)[0]
+            return np.nan
+        return series.rolling(window=window).apply(frac_dot_product, raw=True)
+    # ---------------------------
+
     def convert_to_stationary(self, df: pd.DataFrame) -> pd.DataFrame:
         stationary_df = pd.DataFrame(index=df.index)
         
@@ -73,30 +89,38 @@ class FeatureEngineer:
         stationary_df['env_low'] = df['low']
         stationary_df['env_close'] = df['close']
         
-        stationary_df['close_ret'] = df['close'].pct_change()
-        stationary_df['high_ret'] = (df['high'] - df['open']) / df['open']
-        stationary_df['low_ret'] = (df['low'] - df['open']) / df['open']
+        # --- V3 UPGRADE: 14-Period ATR Calculation ---
+        high_low = df['high'] - df['low']
+        high_close = np.abs(df['high'] - df['close'].shift())
+        low_close = np.abs(df['low'] - df['close'].shift())
+        stationary_df['env_atr'] = np.max(pd.concat([high_low, high_close, low_close], axis=1), axis=1).rolling(14).mean()
         
+        # --- V3 UPGRADE: Fractional Differentiation (Replaces simple pct_change) ---
+        stationary_df['close_frac_diff'] = self.apply_fractional_differentiation(df['close'], d=0.45, window=50)
+        
+        # --- V3 UPGRADE: ATR-Normalized Momentum (Replaces high_ret/low_ret) ---
+        stationary_df['mom_1_norm'] = (df['close'] - df['close'].shift(1)) / stationary_df['env_atr']
+        stationary_df['mom_4_norm'] = (df['close'] - df['close'].shift(4)) / stationary_df['env_atr']
+        
+        # Preserve DXY exactly as you had it
+        if 'dxy_pct_change_15m' in df.columns:
+            stationary_df['dxy_pct_change_15m'] = df['dxy_pct_change_15m']
+            
         exclude_cols = ['open', 'high', 'low', 'close', 'dxy_pct_change_15m']
         price_level_cols = [c for c in df.columns if c not in exclude_cols]
         
+        # --- V3 UPGRADE: ATR-Normalized Zone Distances ---
+        # Instead of `(zone - close)/close`, we divide by ATR so the Oracle knows 
+        # how far the zone is RELATIVE to current market volatility.
         for col in price_level_cols:
-            stationary_df[f'dist_{col}'] = (df[col] - df['close']) / df['close']
-            
-        if 'dxy_pct_change_15m' in df.columns:
-            stationary_df['dxy_pct_change_15m'] = df['dxy_pct_change_15m']
+            stationary_df[f'dist_{col}_norm'] = (df[col] - df['close']) / stationary_df['env_atr']
             
         return stationary_df.dropna()
 
     def generate_labels(self, df: pd.DataFrame, max_hold: int = 32, rr_ratio: float = 2.0) -> pd.DataFrame:
         df = df.copy()
         
-        # Calculate ATR on hidden env_ prices
-        high_low = df['env_high'] - df['env_low']
-        high_close = np.abs(df['env_high'] - df['env_close'].shift())
-        low_close = np.abs(df['env_low'] - df['env_close'].shift())
-        df['env_atr'] = np.max(pd.concat([high_low, high_close, low_close], axis=1), axis=1).rolling(14).mean()
-        
+        # Note: 'env_atr' is now pre-calculated in convert_to_stationary, so we just use it directly!
         close_p, high_p, low_p, atr_v = df['env_close'].values, df['env_high'].values, df['env_low'].values, df['env_atr'].values
         targets = np.zeros(len(df), dtype=int)
         
@@ -154,10 +178,10 @@ class FeatureEngineer:
         master = pd.merge_asof(master, df_4h[[c for c in df_4h.columns if 'zone' in c]], left_index=True, right_index=True)
         master = pd.merge_asof(master, dxy_15m[['dxy_pct_change_15m']], left_index=True, right_index=True).dropna()
         
-        print("6. Converting to Stationary Features...")
+        print("6. Converting to Stationary Features (V3 Math)...")
         master = self.convert_to_stationary(master)
         
-        print("7. Sweeping Future for 2R Targets...")
+        print("7. Sweeping Future for Dynamic ATR Targets...")
         master_labeled = self.generate_labels(master)
         
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -165,7 +189,6 @@ class FeatureEngineer:
         print(f"SUCCESS: Labeled Master Dataset saved to {output_path}")
 
 if __name__ == "__main__":
-    # Ensure these paths point to your actual raw data in the data/raw folder
     XAU_PATH = "data/raw/XAUUSDr_M1_202306070100_202602202359.csv"
     DXY_PATH = "data/raw/USDIndex_M1_202001020300_202606112359.csv"
     OUTPUT_PATH = "data/processed/labeled_features_15m.csv"
