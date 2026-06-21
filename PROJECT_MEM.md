@@ -50,8 +50,12 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
   * Implemented **Fractional Differentiation** ($d=0.45$) via binomial expansion to achieve strict stationarity while preserving structural market memory.
   * Implemented **Volatility-Normalized Context** via a 14-period rolling ATR. Momentum calculations and spatial distances (e.g., distance to 4H resistance) are now divided by the ATR, providing the Oracle with a Z-score of momentum relative to the current session's liquidity.
 
-## 10. Current Execution State
-* **V3 Data Pipeline:** Unit tests passed. The system is currently generating the new fractionally-differenced master dataset.
-* **Pending Milestones:**
-  1. Retrain the Phase A `TemporalAttentionOracle` on the new V3 features.
-  2. Execute the Walk-Forward Analysis (WFA) sequential training pipeline for the Phase B SAC Manager using the new Oracle and `'auto'` entropy architecture.
+## 10. V3 Oracle Calibration Complete
+* **Training Execution:** The Phase A Temporal Attention Oracle successfully trained over 150 epochs on the V3 dataset (Fractional Differentiation + ATR Normalization).
+* **Statistical Alpha:** The network achieved a final validation accuracy of 44.50% against a 1:2 Risk-to-Reward ternary target (Hold/Long/Short). This establishes a strict, positive mathematical expectancy before RL risk allocation.
+* **Current State:** `best_oracle.pth` is frozen and deployed. The system is actively executing Phase B.
+
+## 11. Current Objective: Phase B WFA Execution
+* **Task:** The SAC Manager is undergoing sequential Walk-Forward Analysis (WFA) via `main.py`.
+* **Architecture:** Operating with `ent_coef='auto'` inside the Event-Driven `XAUDynamicEnv`. The agent is gated by the Oracle's 0.36 categorical confidence threshold.
+* **Next Evaluation Phase:** Upon completion of the WFA splits, analyze the Out-of-Sample (OOS) equity curve and True Drawdown metrics to validate the V3 Event-Driven edge.
