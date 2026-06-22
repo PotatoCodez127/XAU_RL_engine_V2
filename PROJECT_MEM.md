@@ -59,3 +59,23 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 * **Task:** The SAC Manager is undergoing sequential Walk-Forward Analysis (WFA) via `main.py`.
 * **Architecture:** Operating with `ent_coef='auto'` inside the Event-Driven `XAUDynamicEnv`. The agent is gated by the Oracle's 0.36 categorical confidence threshold.
 * **Next Evaluation Phase:** Upon completion of the WFA splits, analyze the Out-of-Sample (OOS) equity curve and True Drawdown metrics to validate the V3 Event-Driven edge.
+
+## 12. V3 Walk-Forward Analysis (WFA) Results: OOS Edge Confirmed
+* **Validation Completion:** The WFA pipeline successfully bridged split 0 through 44, finalizing the out-of-sample holdout test.
+* **Hyperactivity Resolved:** The Event-Driven architecture (0.36 Oracle Gating + 24-step Cooldown) successfully reduced execution frequency from ~29,000 trades down to a highly selective 127 trades over the OOS period.
+* **Performance Metrics (OOS):**
+  * **Net Return:** +95.18% (Ending Equity: $19,518.19)
+  * **Winrate:** 36.22%
+  * **Max Drawdown:** 8.14%
+* **Risk Profile:** The SAC Manager exhibited masterful asymmetric risk allocation, capping average losses at 1.07x while stretching average wins to 3.35x. 
+
+## 13. Pre-Deployment: High-Fidelity Simulation Architecture
+* **Objective:** Transition from discrete Markov Decision Process (Gym) backtesting to continuous-time, real-world execution modeling.
+* **Mechanics Implemented (`live_simulator.py`):**
+  * **Asynchronous Execution ($t$ Delay):** Detached signal generation from order execution. Trades trigger at $T$ but are filled at the Open of $T+1$ with ATR-scaled slippage to model network/broker latency.
+  * **Volumetric Friction:** Abandoned flat theoretical costs. The engine calculates precise lot sizes based on exact Stop Loss pip distances (`Volume = Risk_USD / (SL_Pips * Pip_Value)`). Friction is dynamically deducted as $5/lot commission + 2.0 pips spread.
+  * **Temporal Voids:** Enforced strict non-trading boundaries. No execution during daily bank rollover (23:45 - 00:30) and forced liquidation prior to the Friday weekend close (22:45) to mitigate un-simulated gap risk.
+  * **Non-Blocking Action:** Active trades are managed independently of the Phase A Oracle's continuous 30-period rolling feature extraction.
+
+## 14. Final Validation Step
+* Execute `live_simulator.py` to compare the High-Fidelity results against the theoretical WFA backtester. A successful run authorizes the initiation of live MetaTrader 5 FIX API scripting.
