@@ -63,7 +63,10 @@ class HighFidelitySimulator:
         return False
 
     def run_simulation(self):
-        print("Executing Asynchronous Backtest Engine...")
+        # --- NEW: Enforce 80/20 Holdout Firewall ---
+        holdout_start_idx = int(len(self.df) * 0.8)
+        print(f"Executing Asynchronous Backtest Engine...")
+        print(f"Enforcing OOS Firewall: Starting simulation at step {holdout_start_idx} (Final 20% of dataset).")
         
         equity = self.initial_balance
         peak_equity = equity
@@ -74,8 +77,8 @@ class HighFidelitySimulator:
         active_trade = None
         pending_signal = None
         
-        # Start at step 30 to allow for the initial Oracle window
-        for i in range(30, len(self.df) - 1):
+        # Start at the 80% holdout boundary instead of step 30
+        for i in range(holdout_start_idx, len(self.df) - 1):
             current_time = self.df.index[i]
             current_bar = self.df.iloc[i]
             next_bar = self.df.iloc[i+1] # Lookahead strictly for execution latency
