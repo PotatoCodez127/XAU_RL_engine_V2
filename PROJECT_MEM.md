@@ -79,3 +79,7 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 
 ## 14. Final Validation Step
 * Execute `live_simulator.py` to compare the High-Fidelity results against the theoretical WFA backtester. A successful run authorizes the initiation of live MetaTrader 5 FIX API scripting.
+
+## 15. High-Fidelity Simulator Hotfixes
+* **Data Isolation Protocol:** Corrected a critical leakage flaw in `live_simulator.py`. The engine now dynamically calculates the 80% boundary index of the master dataset and forces execution strictly within the final 20% to guarantee purely Out-of-Sample (OOS) evaluation.
+* **Vector Architecture Alignment:** Resolved a PyTorch tensor mismatch (`ValueError: Unexpected observation shape`) by ensuring the on-the-fly Oracle probability queries append all three dimensional outputs (`prob_hold`, `prob_long`, `prob_short`) to the SAC Manager's state vector, matching the exact 28-value dimension established during Phase B Walk-Forward (`wfa_43`) training.
