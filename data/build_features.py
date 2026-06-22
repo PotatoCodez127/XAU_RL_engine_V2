@@ -117,10 +117,9 @@ class FeatureEngineer:
             
         return stationary_df.dropna()
 
-    def generate_labels(self, df: pd.DataFrame, max_hold: int = 32, rr_ratio: float = 2.0) -> pd.DataFrame:
+    def generate_labels(self, df: pd.DataFrame, max_hold: int = 32, rr_ratio: float = 2.0, latency_bars: int = 4, latency_drawdown_mult: float = 0.5) -> pd.DataFrame:
         df = df.copy()
         
-        # Note: 'env_atr' is now pre-calculated in convert_to_stationary, so we just use it directly!
         close_p, high_p, low_p, atr_v = df['env_close'].values, df['env_high'].values, df['env_low'].values, df['env_atr'].values
         targets = np.zeros(len(df), dtype=int)
         
@@ -130,13 +129,23 @@ class FeatureEngineer:
             entry_price, atr = close_p[i], max(atr_v[i], 0.5)
             spread = 0.15
             
+            # Standard Macro TP/SL Levels
             long_tp, long_sl = entry_price + (atr * rr_ratio) + spread, entry_price - atr - spread
             short_tp, short_sl = entry_price - (atr * rr_ratio) - spread, entry_price + atr + spread
+            
+            # --- NEW: Micro-Structure Latency Buffer (Strict Adverse Excursion) ---
+            long_micro_sl = entry_price - (atr * latency_drawdown_mult) - spread
+            short_micro_sl = entry_price + (atr * latency_drawdown_mult) + spread
             
             long_valid, short_valid, target = True, True, 0
             
             for j in range(1, max_hold + 1):
                 f_high, f_low = high_p[i + j], low_p[i + j]
+                
+                # If within the first 4 bars (1 hour), enforce the strict micro-stop
+                if j <= latency_bars:
+                    if f_low <= long_micro_sl: long_valid = False
+                    if f_high >= short_micro_sl: short_valid = False
                 
                 if long_valid:
                     if f_low <= long_sl: long_valid = False 
