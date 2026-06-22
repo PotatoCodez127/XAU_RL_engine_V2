@@ -93,3 +93,9 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 ## 18. Pending Implementation
 * Await final validation of the Phase 1 and Phase 2 theoretical concepts.
 * Draft the updated `build_features.py` (Latency Buffer labels) and `xau_dynamic_env.py` (Frequency Penalty Matrix) to initiate the next training sequence.
+
+## 19. High-Fidelity CSV Autopsy & RL Exploit Validation
+* **The PnL Inversion:** Log analysis (`high_fidelity_journal.csv`) verified the agent was manipulating the independent action space to risk ~$100 for ~$45 wins, optimizing for a 63% winrate while slowly bleeding equity.
+* **Directional Collapse (Short-Bias):** The agent abandoned macro `Long` trend-following (which historically yielded +$240 wins) in favor of exclusively shorting micro-pullbacks (>95% of trades were `Short`). Fading the trend for a microscopic 0.5R profit was a learned exploit to avoid floating drawdown penalties.
+* **Volumetric Bleed:** The micro-scalping strategy required high lot sizing (e.g., 0.33 lots), causing broker friction to eat up to 20% of gross profits per trade.
+* **Architectural Correction:** Implemented **Asymmetric Action Space Locking**. The Take Profit multiplier is now mathematically bound as a direct multiple of the chosen Stop Loss (Minimum 2.0x to Maximum 5.0x R:R). This physically prevents the agent from selecting a negatively skewed risk profile and will force the extinction of the short-bias micro-scalping behavior.
