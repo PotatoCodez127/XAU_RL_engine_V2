@@ -83,3 +83,13 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 ## 15. High-Fidelity Simulator Hotfixes
 * **Data Isolation Protocol:** Corrected a critical leakage flaw in `live_simulator.py`. The engine now dynamically calculates the 80% boundary index of the master dataset and forces execution strictly within the final 20% to guarantee purely Out-of-Sample (OOS) evaluation.
 * **Vector Architecture Alignment:** Resolved a PyTorch tensor mismatch (`ValueError: Unexpected observation shape`) by ensuring the on-the-fly Oracle probability queries append all three dimensional outputs (`prob_hold`, `prob_long`, `prob_short`) to the SAC Manager's state vector, matching the exact 28-value dimension established during Phase B Walk-Forward (`wfa_43`) training.
+
+## 17. Strategic Pivot: Mathematical Frequency Constraining
+* **Diagnosis:** High-Fidelity backtesting revealed a low Calmar ratio (~1.25) caused by rigid, hardcoded execution mechanics (static 0.36 threshold and 24-bar cooldown). Bayesian optimization of these static parameters poses a high risk of curve-fitting.
+* **New Operational Constraints:** Execution must fall strictly between a minimum of 2 trades per week and a maximum of 1 trade per day.
+* **Architectural Shift:** 1. **Reward Shaping:** Transitioning from programmatic `if/else` lockouts to a heavily penalized continuous reward surface. The SAC Manager will autonomously learn the daily "one-bullet" frequency constraint to avoid catastrophic policy penalties.
+  2. **Micro-Structure Labels:** Upgrading the Oracle's training labels to require immediate momentum expansion (zero adverse excursion in the first 4 bars) to eliminate latency/slippage friction during live execution.
+
+## 18. Pending Implementation
+* Await final validation of the Phase 1 and Phase 2 theoretical concepts.
+* Draft the updated `build_features.py` (Latency Buffer labels) and `xau_dynamic_env.py` (Frequency Penalty Matrix) to initiate the next training sequence.

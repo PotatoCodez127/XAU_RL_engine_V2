@@ -95,4 +95,4 @@ if __name__ == "__main__":
     os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
     
     # Trigger the training sequence
-    train_oracle_supervised(df=master_df, save_path=SAVE_PATH, epochs=50)
+    train_oracle_supervised(df=master_df, save_path=SAVE_PATH, epochs=150)
