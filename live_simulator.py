@@ -48,7 +48,8 @@ class HighFidelitySimulator:
             logits = self.oracle(window_tensor)
             probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
             
-        return probs[1], probs[2] # prob_long, prob_short
+        # --- FIX: Return all three probabilities to match the training vector ---
+        return probs[0], probs[1], probs[2] 
 
     def is_restricted_time(self, current_time: pd.Timestamp) -> bool:
         """Enforces real-world liquidity voids."""
@@ -172,12 +173,17 @@ class HighFidelitySimulator:
                 equity_curve.append(equity)
                 continue
 
-            prob_long, prob_short = self._get_oracle_probs(i)
+            prob_hold, prob_long, prob_short = self._get_oracle_probs(i)
             
-            # Construct standard observation vector for the SAC Agent
+            # --- FIX: Construct standard observation vector for the SAC Agent (Length 28) ---
             features = current_bar[self.feature_cols].values
-            obs = np.zeros(len(self.feature_cols) + 2, dtype=np.float32)
+            obs = np.zeros(len(self.feature_cols) + 5, dtype=np.float32)
+            
             obs[:len(features)] = features
+            obs[len(features)] = prob_hold
+            obs[len(features)+1] = prob_long
+            obs[len(features)+2] = prob_short
+            
             obs[-2] = float(np.clip(equity / self.initial_balance, 0.0, 10.0))
             obs[-1] = float(np.clip((peak_equity - equity) / peak_equity, 0.0, 1.0))
             
@@ -227,7 +233,7 @@ class HighFidelitySimulator:
 if __name__ == "__main__":
     DATA = "data/processed/labeled_features_15m.csv"
     ORACLE = "models/oracle/best_oracle.pth"
-    MANAGER = "models/manager/saved/wfa_44/best_model.zip"
+    MANAGER = "models/manager/saved/wfa_43/best_model.zip"
     
     sim = HighFidelitySimulator(DATA, ORACLE, MANAGER)
     sim.run_simulation()
