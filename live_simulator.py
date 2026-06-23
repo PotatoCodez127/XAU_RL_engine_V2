@@ -16,8 +16,10 @@ class HighFidelitySimulator:
         # Broker & Risk Constants
         self.commission_per_lot = 5.00
         self.spread_pips = 2.0
-        self.pip_value_per_lot = 10.0 # Standard $10 per pip on 1 standard XAUUSD lot (100oz)
-        self.risk_usd = 100.0
+        self.pip_value_per_lot = 10.0 
+        
+        # --- NEW: Dynamic Compounding ---
+        self.risk_pct = 0.015  # Risking exactly 1.5% of current equity per trade
         self.initial_balance = 10000.0
         
         # System Constants (Aligned with xau_dynamic_env.py)
@@ -135,8 +137,12 @@ class HighFidelitySimulator:
                 else:
                     fill_price -= (slippage_pips * 0.1)
 
+                # --- NEW: Volumetric Math with Compounding ---
                 sl_pips = pending_signal['sl_distance']
-                lot_size = self.risk_usd / (sl_pips * self.pip_value_per_lot)
+                current_risk_usd = equity * self.risk_pct
+                
+                # Lot_Volume = Current_Risk_USD / (SL_Pips * Pip_Value)
+                lot_size = current_risk_usd / (sl_pips * self.pip_value_per_lot)
                 lot_size = round(np.clip(lot_size, 0.01, 100.0), 2)
                 
                 commission = lot_size * self.commission_per_lot
