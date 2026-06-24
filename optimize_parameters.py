@@ -6,12 +6,51 @@ import pandas as pd
 from stable_baselines3 import SAC
 from env.xau_dynamic_env import XAUDynamicEnv
 from live_simulator import HighFidelitySimulator
+from models.oracle.attention_net import TemporalAttentionOracle
+from sklearn.preprocessing import StandardScaler
 
 # Suppress SB3 warnings for cleaner output
 import warnings
 warnings.filterwarnings("ignore")
 
-def optimize_agent(trial):
+def precompute_oracle_probabilities(data_path, oracle_path, device):
+    """Precomputes Oracle probabilities once to save massive compute time during the 50 trials."""
+    print("Precomputing Oracle Probabilities (This runs only once)...")
+    df = pd.read_csv(data_path, index_col=0, parse_dates=True)
+    
+    exclude_cols = ['target', 'time', 'datetime', 'date']
+    feature_cols = [c for c in df.columns if c not in exclude_cols and not c.startswith('env_')]
+    
+    oracle = TemporalAttentionOracle(input_dim=len(feature_cols), seq_len=30).to(device)
+    oracle.load_state_dict(torch.load(oracle_path, map_location=device))
+    oracle.eval()
+    
+    scaler = StandardScaler()
+    raw_features = scaler.fit_transform(df[feature_cols].values)
+    
+    probs_hold = np.zeros(len(df))
+    probs_long = np.zeros(len(df))
+    probs_short = np.zeros(len(df))
+    
+    with torch.no_grad():
+        for i in range(30, len(df)):
+            window = raw_features[i-30:i]
+            window_tensor = torch.FloatTensor(window).unsqueeze(0).to(device)
+            logits = oracle(window_tensor)
+            probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
+            
+            probs_hold[i] = probs[0]
+            probs_long[i] = probs[1]
+            probs_short[i] = probs[2]
+            
+    df['prob_hold'] = probs_hold
+    df['prob_long'] = probs_long
+    df['prob_short'] = probs_short
+    
+    print("Precomputation complete!")
+    return df
+
+def optimize_agent(trial, precomputed_df):
     # 1. Sample Hyperparameters mathematically
     gamma = trial.suggest_float("gamma", 0.90, 0.9999, log=True)
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
@@ -19,20 +58,18 @@ def optimize_agent(trial):
     tau = trial.suggest_float("tau", 0.001, 0.05, log=True)
     train_freq = trial.suggest_categorical("train_freq", [1, 4, 8, 16])
     
-    print(f"\\n--- Starting Trial {trial.number} ---")
+    print(f"\n--- Starting Trial {trial.number} ---")
     print(f"Testing Config: Gamma={gamma:.4f}, LR={learning_rate:.5f}, Batch={batch_size}")
 
-    # 2. Load Data & Enforce Strict Firewall
-    data_path = "data/processed/labeled_features_15m.csv"
-    df = pd.read_csv(data_path, index_col=0, parse_dates=True)
-    
-    split_idx = int(len(df) * 0.8)
-    train_df = df.iloc[:split_idx].copy()
-    test_df = df.iloc[split_idx:].copy()
+    # 2. Enforce Strict Firewall
+    split_idx = int(len(precomputed_df) * 0.8)
+    train_df = precomputed_df.iloc[:split_idx].copy()
+    test_df = precomputed_df.iloc[split_idx:].copy()
     
     # 3. Train the Agent on In-Sample Data
     train_env = XAUDynamicEnv(train_df, initial_balance=10000.0)
     
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     model = SAC(
         "MlpPolicy", 
         train_env, 
@@ -43,7 +80,7 @@ def optimize_agent(trial):
         train_freq=train_freq,
         ent_coef="auto",
         verbose=0,
-        device="cuda" if torch.cuda.is_available() else "cpu"
+        device=device
     )
     
     # Train for a fast, concentrated burst to gauge mathematical viability
@@ -55,6 +92,7 @@ def optimize_agent(trial):
     model.save(temp_path)
     
     # 4. Evaluate using the High-Fidelity Simulator on Unseen Data
+    data_path = "data/processed/labeled_features_15m.csv"
     oracle_path = "models/oracle/best_oracle.pth"
     sim = HighFidelitySimulator(data_path, oracle_path, temp_path)
     
@@ -134,7 +172,6 @@ def run_evaluation_simulation(sim, holdout_start_idx):
 
             sl_pips = pending_signal['sl_distance']
             
-            # Use the Dynamic Compounding logic (1.5%) you implemented
             current_risk_usd = equity * sim.risk_pct
             lot_size = round(np.clip(current_risk_usd / (sl_pips * sim.pip_value_per_lot), 0.01, 100.0), 2)
             total_friction = (lot_size * sim.commission_per_lot) + (lot_size * sim.spread_pips * sim.pip_value_per_lot)
@@ -185,10 +222,19 @@ def run_evaluation_simulation(sim, holdout_start_idx):
     return equity, total_trades
 
 if __name__ == "__main__":
-    print("Initializing Bayesian Parameter Optimizer...")
+    DATA_PATH = "data/processed/labeled_features_15m.csv"
+    ORACLE_PATH = "models/oracle/best_oracle.pth"
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    # 1. Precompute once
+    precomputed_df = precompute_oracle_probabilities(DATA_PATH, ORACLE_PATH, DEVICE)
+    
+    # 2. Run optimization passing the precomputed dataset
+    print("\nInitializing Bayesian Parameter Optimizer...")
     study = optuna.create_study(direction="maximize")
-    # Run 50 trials to sweep the mathematical combinations
-    study.optimize(optimize_agent, n_trials=50)
+    
+    # Using a lambda to pass the precomputed dataframe into the objective function
+    study.optimize(lambda trial: optimize_agent(trial, precomputed_df), n_trials=50)
     
     print("\n==================================================")
     print(" OPTIMIZATION COMPLETE ")
