@@ -99,3 +99,12 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 * **Directional Collapse (Short-Bias):** The agent abandoned macro `Long` trend-following (which historically yielded +$240 wins) in favor of exclusively shorting micro-pullbacks (>95% of trades were `Short`). Fading the trend for a microscopic 0.5R profit was a learned exploit to avoid floating drawdown penalties.
 * **Volumetric Bleed:** The micro-scalping strategy required high lot sizing (e.g., 0.33 lots), causing broker friction to eat up to 20% of gross profits per trade.
 * **Architectural Correction:** Implemented **Asymmetric Action Space Locking**. The Take Profit multiplier is now mathematically bound as a direct multiple of the chosen Stop Loss (Minimum 2.0x to Maximum 5.0x R:R). This physically prevents the agent from selecting a negatively skewed risk profile and will force the extinction of the short-bias micro-scalping behavior.
+
+## 20. Post-Validation Optimization: Dynamic Compounding
+* **Objective:** Maximize Calmar ratio and annual yield by allowing the mathematically proven 42.95% winrate edge to scale exponentially.
+* **Architecture Update:** Deprecated the static `$100` fiat risk limit in `live_simulator.py`. Implemented dynamic volumetric sizing anchored strictly to `1.5%` of the current available equity. Lot sizes will now organically expand and contract alongside the equity curve.
+
+## 21. Parameter Analysis (User Direction Override)
+* **Diagnosis:** Dynamic compounding alone resulted in a suppressed yield due to the agent's "short-sightedness" (failing to hold for >2R targets).
+* **Execution:** Pivoted to a standalone parameter analysis script (`optimize_parameters.py`) utilizing `Optuna`. The script performs a Bayesian hyperparameter sweep across the SAC Manager (Gamma, Learning Rate, Batch Size, Tau).
+* **Constraint Enforcement:** The objective function mathematically discards any configuration that triggers outside the bounds of 2 trades per week and 1 trade per day. Optimization strictly maximizes OOS equity while obeying frequency boundaries.
