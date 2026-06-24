@@ -70,7 +70,7 @@ class ManagerPipeline:
             train_freq=16,
             ent_coef="auto",  # Keep dynamic entropy enabled
             verbose=1,
-            tensorboard_log=tensorboard_log_dir,
+            tensorboard_log="logs/"
             device=device
         )
         # 2. If continuous memory exists, selectively inject the weights.
