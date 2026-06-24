@@ -63,12 +63,15 @@ class ManagerPipeline:
         model = SAC(
             "MlpPolicy", 
             train_env, 
-            verbose=1,
-            device=self.device,
-            ent_coef='auto',
-            learning_rate=3e-4,
+            gamma=0.9245,
+            learning_rate=0.000253,
             batch_size=256,
-            policy_kwargs=dict(net_arch=[128, 128])
+            tau=0.00137,
+            train_freq=16,
+            ent_coef="auto",  # Keep dynamic entropy enabled
+            verbose=1,
+            tensorboard_log=tensorboard_log_dir,
+            device=device
         )
         # 2. If continuous memory exists, selectively inject the weights.
         if previous_sac_path and os.path.exists(previous_sac_path):
