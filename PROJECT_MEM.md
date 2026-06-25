@@ -119,3 +119,8 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 * **Diagnosis:** Optuna hyperparameters failed to generalize in Walk-Forward Analysis (Winrate collapsed to 30%). The failure was rooted in structural blindness; the agent lacked macro-trend awareness beyond its 7.5-hour observation window.
 * **Architecture Update:** Injected Multi-Timeframe (MTF) context into `build_features.py`. Engineered the `env_h4_trend` (macro flow slope) and `env_h1_vol_regime` (volatility percentiles) directly from the 15m data to completely avoid look-ahead data leakage.
 * **Goal:** The SAC agent (with frequency penalties intact) can now structurally map Phase A signals to the macro current, allowing it to mathematically justify holding setups for high R:R targets without guessing.
+
+## 24. R:R Asphyxiation and Baseline Flooring
+* **Diagnosis:** Synchronizing the simulator to the strict 2.0x R:R minimum caused the True Winrate to collapse to 31.51%. The agent was forced to hold through natural pullbacks, turning 1.5R momentum expansions into stop-outs. 
+* **Market Physics:** Win Rate and R:R are inversely correlated. A 60% win rate at >2R is statistically unviable on the 15m timeframe due to market noise.
+* **Architecture Update:** Altered the Asymmetric Action Space math in both the environment and simulator. Lowered the minimum Take Profit multiplier to `1.0x` (1:1 R:R) and the maximum to `3.0x`. This prevents Risk Inversion (negative expectancy) while restoring the agent's ability to secure highly probable 1R to 1.5R momentum bursts.

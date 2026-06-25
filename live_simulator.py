@@ -197,8 +197,8 @@ class HighFidelitySimulator:
                 direction = 0
 
             if direction != 0:
-                sl_mult = ((sl_val + 1.0) / 2.0) * 1.0 + 0.5 
-                tp_mult = sl_mult * (((tp_val + 1.0) / 2.0) * 3.0 + 2.0)
+                sl_mult = ((sl_val + 1.0) / 2.0) * 1.0 + 0.5
+                tp_mult = sl_mult * (((tp_val + 1.0) / 2.0) * 2.0 + 1.0)
                 
                 sl_distance_pips = (current_bar['env_atr'] * sl_mult) * 10 
                 tp_distance_pips = (current_bar['env_atr'] * tp_mult) * 10

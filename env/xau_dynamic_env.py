@@ -78,7 +78,7 @@ class XAUDynamicEnv(gym.Env):
                 self.bars_since_last_trade = 0
                 risk_pct = ((size_val + 1.0) / 2.0) * 0.05
                 sl_mult_used = ((sl_val + 1.0) / 2.0) * 1.0 + 0.5
-                tp_mult_used = sl_mult_used * (((tp_val + 1.0) / 2.0) * 3.0 + 2.0)
+                tp_mult_used = sl_mult_used * (((tp_val + 1.0) / 2.0) * 2.0 + 1.0)
                 amount_at_risk = self.balance * risk_pct
                 
                 prob_win = self.df.loc[self.current_step, 'prob_long'] if direction == 1 else self.df.loc[self.current_step, 'prob_short']
