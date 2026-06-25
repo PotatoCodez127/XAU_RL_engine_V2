@@ -114,3 +114,8 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 * **The Metrics:** The optimized agent shattered the scaling bottleneck, generating a simulated OOS Equity of $25,395.46 (+153.9% net return) while strictly obeying the 2-trades/week to 1-trade/day pacing limits.
 * **The Mechanics:** The most impactful parameter shift was `train_freq: 16` and `tau: 0.00137`. Slowing down the policy update interval and target network tracking stopped the agent from overreacting to 15m micro-volatility, granting it the stability required to hold positions for maximum 4R to 5R targets.
 * **Action Taken:** Permanently locked `gamma: 0.9245`, `learning_rate: 0.000253`, `batch_size: 256`, `tau: 0.00137`, and `train_freq: 16` into the core training pipeline.
+
+## 23. Structural Evolution: MTF Context Injection
+* **Diagnosis:** Optuna hyperparameters failed to generalize in Walk-Forward Analysis (Winrate collapsed to 30%). The failure was rooted in structural blindness; the agent lacked macro-trend awareness beyond its 7.5-hour observation window.
+* **Architecture Update:** Injected Multi-Timeframe (MTF) context into `build_features.py`. Engineered the `env_h4_trend` (macro flow slope) and `env_h1_vol_regime` (volatility percentiles) directly from the 15m data to completely avoid look-ahead data leakage.
+* **Goal:** The SAC agent (with frequency penalties intact) can now structurally map Phase A signals to the macro current, allowing it to mathematically justify holding setups for high R:R targets without guessing.
