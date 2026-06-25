@@ -70,8 +70,8 @@ class ManagerPipeline:
             train_freq=16,
             ent_coef="auto",  # Keep dynamic entropy enabled
             verbose=1,
-            tensorboard_log="logs/"
-            device=device
+            tensorboard_log="logs/",
+            device=self.device
         )
         # 2. If continuous memory exists, selectively inject the weights.
         if previous_sac_path and os.path.exists(previous_sac_path):
