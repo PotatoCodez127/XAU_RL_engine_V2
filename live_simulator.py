@@ -165,48 +165,46 @@ class HighFidelitySimulator:
                 continue
 
             # --- 3. SIGNAL GENERATION (The Oracle / Manager) ---
-            if self.is_restricted_time(current_time):
-                equity_curve.append(equity)
-                continue
+            # Signal Generation
+            if sim.is_restricted_time(current_time): continue
 
-            prob_hold, prob_long, prob_short = self._get_oracle_probs(i)
+            prob_hold, prob_long, prob_short = sim._get_oracle_probs(i)
             
-            # --- FIX: Tensor shape expanded to 29 to include the urgency_clock ---
-            features = current_bar[self.feature_cols].values
-            obs = np.zeros(len(self.feature_cols) + 6, dtype=np.float32)
-            
-            obs[:len(features)] = features
-            obs[len(features)] = prob_hold
-            obs[len(features)+1] = prob_long
-            obs[len(features)+2] = prob_short
-            
-            obs[-3] = float(np.clip(equity / self.initial_balance, 0.0, 10.0))
-            obs[-2] = float(np.clip((peak_equity - equity) / peak_equity, 0.0, 1.0))
-            obs[-1] = float(np.clip(bars_since_last_trade / 480.0, 0.0, 1.0)) # The new Urgency Clock metric
-            
-            action, _ = self.manager.predict(obs, deterministic=True)
-            direction_val, size_val, tp_val, sl_val = action[0], action[1], action[2], action[3]
-            
-            # Agent evaluates autonomously (removed 0.36 rigid threshold)
+            # 1. Oracle dictates Direction (The Master)
             direction = 0
-            if direction_val > 0.33: direction = 1
-            elif direction_val < -0.33: direction = 2
+            if prob_long > 0.55 and prob_long > prob_short:
+                direction = 1
+            elif prob_short > 0.55 and prob_short > prob_long:
+                direction = 2
 
-            # Hard environmental block matching xau_dynamic_env.py
-            if direction != 0 and bars_since_last_trade < self.min_bars_between_trades:
+            if direction != 0 and bars_since_last_trade < sim.min_bars_between_trades: 
                 direction = 0
 
             if direction != 0:
-                sl_mult = ((sl_val + 1.0) / 2.0) * 1.0 + 0.5
-                tp_mult = sl_mult * (((tp_val + 1.0) / 2.0) * 2.0 + 1.0)
+                # 2. Feature Construction
+                features = current_bar[sim.feature_cols].values
+                obs = np.zeros(len(sim.feature_cols) + 6, dtype=np.float32)
+                obs[:len(features)] = features
+                obs[len(features)] = prob_hold
+                obs[len(features)+1] = prob_long
+                obs[len(features)+2] = prob_short
+                obs[-3] = float(np.clip(equity / sim.initial_balance, 0.0, 10.0))
+                obs[-2] = float(np.clip((peak_equity - equity) / peak_equity, 0.0, 1.0))
+                obs[-1] = float(np.clip(bars_since_last_trade / 480.0, 0.0, 1.0))
                 
-                sl_distance_pips = (current_bar['env_atr'] * sl_mult) * 10 
-                tp_distance_pips = (current_bar['env_atr'] * tp_mult) * 10
+                # 3. RL Agent dictates Risk (The Slave)
+                action, _ = sim.manager.predict(obs, deterministic=True)
+                
+                # action[0] (direction) is completely ignored and overridden
+                size_val, tp_val, sl_val = action[1], action[2], action[3]
+                
+                sl_mult = ((sl_val + 1.0) / 2.0) * 1.0 + 0.5 
+                tp_mult = sl_mult * (((tp_val + 1.0) / 2.0) * 2.0 + 1.0) 
                 
                 pending_signal = {
                     'type': 'Long' if direction == 1 else 'Short',
-                    'sl_distance': sl_distance_pips,
-                    'tp_distance': tp_distance_pips
+                    'sl_distance': (current_bar['env_atr'] * sl_mult) * 10,
+                    'tp_distance': (current_bar['env_atr'] * tp_mult) * 10
                 }
                 
             equity_curve.append(equity)
