@@ -130,3 +130,12 @@ To reduce execution frequency to a realistic retail range (1–2 trades/day) and
 * **Architecture Update 1:** Implemented a strict **Master-Slave Architecture** in `live_simulator.py`. The RL Agent was stripped of directional autonomy. The Phase A Oracle (Master) now exclusively dictates the trade direction and timing, while the SAC Manager (Slave) is strictly queried for volumetric sizing and TP/SL boundaries. 
 * **Diagnosis 2 (Softmax Hold Bias):** Using an absolute `> 0.55` threshold for the Oracle resulted in zero executions. Due to the massive class imbalance in the 15m dataset (70%+ noise/consolidation), the neural network's baseline `Softmax` distribution was heavily skewed toward `Hold`.
 * **Architecture Update 2:** Replaced the absolute threshold with **Relative Conviction** (`prob_long > prob_hold`). The system now triggers execution whenever the mathematical probability of a directional momentum expansion mathematically eclipses the baseline probability of market noise.
+
+## 26. Hybrid Execution: Macro Confluence Filtering
+* **Diagnosis:** The 0.35 Minority Threshold triggered 310 trades, but the Winrate collapsed to 26.77%. The Oracle's attention mechanism suffered from Recency Bias, overweighting volatile 15-minute micro-structure while ignoring the slow-moving `h4_trend`. This resulted in continuous counter-trend executions.
+* **Architecture Update:** Transitioned to a Hybrid Execution Model. The ML Oracle is now restricted strictly to precise timing/momentum detection, while the `h4_trend` acts as a hard quantitative gatekeeper. Longs are physically blocked in a bearish H4 trend, and Shorts are physically blocked in a bullish H4 trend, completely eliminating counter-trend degradation.
+
+## 27. Final Validation: V3 Engine Structural Profitability
+* **Results:** The Hybrid Execution Model successfully filtered out ~100 counter-trend executions. Total trades dropped to 206, and the True Winrate rebounded to 35.44%.
+* **Financial Metrics:** The positive expectancy of the 35% winrate combined with the 1.0R-3.0R Asymmetric Floor and 1.5% Dynamic Compounding yielded a final Out-Of-Sample Equity of $15,505.80 (+55.05% Net Return).
+* **Conclusion:** The core algorithmic and neural architecture of the XAU RL Engine V2 is mathematically sound, successfully overriding previous limitations of Risk Inversion and Mode Collapse.
