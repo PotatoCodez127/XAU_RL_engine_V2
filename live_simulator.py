@@ -166,16 +166,27 @@ class HighFidelitySimulator:
 
             # --- 3. SIGNAL GENERATION (The Oracle / Manager) ---
             # Signal Generation
+            # Signal Generation
+            # Signal Generation
             if sim.is_restricted_time(current_time): continue
 
             prob_hold, prob_long, prob_short = sim._get_oracle_probs(i)
             
-            # 1. Oracle dictates Direction (The Master)
+            # The threshold required for a minority class to trigger execution
+            EXECUTION_THRESHOLD = 0.35 
+            
+            # --- NEW: Macro Confluence Filter ---
+            current_h4_trend = current_bar['h4_trend']
+            
             direction = 0
-            if prob_long > 0.55 and prob_long > prob_short:
-                direction = 1
-            elif prob_short > 0.55 and prob_short > prob_long:
-                direction = 2
+            if prob_long > EXECUTION_THRESHOLD and prob_long > prob_short:
+                # Master-Override: Only authorize LONG if the 4-Hour macro ocean is Bullish
+                if current_h4_trend > 0:
+                    direction = 1
+            elif prob_short > EXECUTION_THRESHOLD and prob_short > prob_long:
+                # Master-Override: Only authorize SHORT if the 4-Hour macro ocean is Bearish
+                if current_h4_trend < 0:
+                    direction = 2
 
             if direction != 0 and bars_since_last_trade < sim.min_bars_between_trades: 
                 direction = 0
@@ -195,7 +206,6 @@ class HighFidelitySimulator:
                 # 3. RL Agent dictates Risk (The Slave)
                 action, _ = sim.manager.predict(obs, deterministic=True)
                 
-                # action[0] (direction) is completely ignored and overridden
                 size_val, tp_val, sl_val = action[1], action[2], action[3]
                 
                 sl_mult = ((sl_val + 1.0) / 2.0) * 1.0 + 0.5 
@@ -205,7 +215,7 @@ class HighFidelitySimulator:
                     'type': 'Long' if direction == 1 else 'Short',
                     'sl_distance': (current_bar['env_atr'] * sl_mult) * 10,
                     'tp_distance': (current_bar['env_atr'] * tp_mult) * 10
-                }
+                }   
                 
             equity_curve.append(equity)
 
