@@ -1,6 +1,7 @@
 import pandas as pd
 from typing import List, Dict
 
+
 class WalkForwardPipeline:
     def __init__(self, features_path: str, embargo_bars: int = 50):
         """
@@ -15,10 +16,12 @@ class WalkForwardPipeline:
         if holdout_fraction > 0:
             train_boundary = int(len(self.master_df) * (1 - holdout_fraction))
             self.master_df = self.master_df.iloc[:train_boundary]
-            
+
         return self.master_df
 
-    def generate_splits(self, train_size: int, test_size: int, step_size: int) -> List[Dict[str, pd.DataFrame]]:
+    def generate_splits(
+        self, train_size: int, test_size: int, step_size: int
+    ) -> List[Dict[str, pd.DataFrame]]:
         if self.master_df is None:
             raise ValueError("Data not loaded. Call load_data() first.")
 
@@ -33,9 +36,11 @@ class WalkForwardPipeline:
             if test_end > total_len:
                 break
 
-            splits.append({
-                'train': self.master_df.iloc[i:train_end], 
-                'test': self.master_df.iloc[test_start:test_end]
-            })
+            splits.append(
+                {
+                    "train": self.master_df.iloc[i:train_end],
+                    "test": self.master_df.iloc[test_start:test_end],
+                }
+            )
 
         return splits
